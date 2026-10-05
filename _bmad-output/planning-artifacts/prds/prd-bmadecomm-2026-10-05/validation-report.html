@@ -1,0 +1,228 @@
+﻿<!DOCTYPE html>
+<!--
+  PRD Validation Report — skeleton template.
+
+  This file is a starter the synthesis pass fills in directly. There is no
+  substitution engine. The LLM:
+    1. Reads {doc_workspace}/review-rubric.md and every review-{slug}.md from
+       additional reviewers.
+    2. Copies this skeleton.
+    3. Replaces the placeholder content (everything between TEMPLATE markers)
+       with the consolidated review, preserving the structure and CSS.
+    4. Writes the result to {doc_workspace}/validation-report.html.
+    5. Writes a markdown twin to {doc_workspace}/validation-report.md.
+
+  Visual rules the LLM must preserve:
+    - The container width, the color tokens, the typography.
+    - One dimension = one collapsible <section class="dimension">.
+    - Verdict pill uses the verdict-* class matching its judgment.
+    - Severity badge uses the sev-* class matching its level.
+    - Each extra reviewer (adversarial, etc.) gets its own collapsible section
+      below the rubric dimensions.
+    - The footer always shows the artifact paths and timestamp.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PRD Validation: Ecommerce_PRD.docx</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+
+    --grade-exc: #16a34a;
+    --grade-good: #65a30d;
+    --grade-fair: #d97706;
+    --grade-poor: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .grade {
+    padding: 10px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    color: white;
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .grade-excellent { background: var(--grade-exc); }
+  .grade-good { background: var(--grade-good); }
+  .grade-fair { background: var(--grade-fair); }
+  .grade-poor { background: var(--grade-poor); }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body><div class="container"><header class="report-header"><div class="title"><h1>Ecommerce PRD — Validation Report</h1><div class="subtitle">C:/Users/User/Downloads/Ecommerce_PRD.docx</div></div><div class="grade grade-poor">Poor: readiness</div></header><div class="synthesis"><p>The document supplies a broad, useful ecommerce capability inventory, practical storefront/admin journeys, P0/P1/P2 priorities, and several concrete acceptance examples. It is not ready to serve as an implementation SRS: its own source-completeness note says sections 1–3 and the beginning of section 4 are unavailable, while transaction semantics, launch scope exceptions, security policy, measurable NFRs, and most acceptance conditions remain unresolved. Use it as the input to PRD repair/validation, then UX and architecture, before deriving implementation stories.</p><p>Broad capability coverage; incomplete source and unresolved release decisions. Analysis only, no implementation or source edits.</p><p><a href="requirements-analysis.md">Full requirements and project analysis</a> · <a href="validation-report.md">Markdown report</a></p></div><div class="dimension-summary"><div class="dim-card"><div class="dim-name">Decision-readiness</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div><div class="dim-card"><div class="dim-name">Substance over theater</div><div class="dim-verdict" style="color:var(--verdict-adequate)">adequate</div></div><div class="dim-card"><div class="dim-name">Strategic coherence</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div><div class="dim-card"><div class="dim-name">Done-ness clarity</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div><div class="dim-card"><div class="dim-name">Scope honesty</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div><div class="dim-card"><div class="dim-name">Downstream usability</div><div class="dim-verdict" style="color:var(--verdict-thin)">thin</div></div><div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color:var(--verdict-adequate)">adequate</div></div></div><section class="dimension"><details open><summary><h2>Decision-readiness</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>Section 96 honestly lists decisions that materially affect architecture and operations. However, geography, currency, tax treatment, provider choice, inventory timing, reservation duration, cancellation rules, and language scope cannot remain open until “final implementation.” They change the contracts and data model that stories would depend on. Sections 89 and 99 establish an end-to-end launch gate, but do not resolve those choices or assign decision owners.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-critical">critical</span></header><div class="finding-note">Missing source foundation (source-completeness note; &#167;&#167;4, 87) — The supplied file explicitly lacks sections 1–3 and part of section 4. Business context and original objectives cannot be verified from this source. *Fix:* Recover the missing source or explicitly replace it with confirmed product objectives, launch market, operating model, and measurable success targets.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Blocking decisions lack ownership and deadlines (&#167;96) — Thirteen decisions remain open, including tax, payment, inventory, shipping, and launch language. *Fix:* Create a decision register recording owner, options, chosen outcome, rationale, and the planning stage by which it must be decided.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Checkout transaction policy is undecided (&#167;&#167;15, 45, 85–86, 94–96) — The successful flow places payment before order creation, transaction records require an order, failed payment leaves an unpaid order, and inventory may be reserved or deducted. These might be compatible with a draft order/payment intent, but that lifecycle is absent. *Fix:* Define the draft/placed order boundary, provider reference creation, COD handling, reservation timing, failure recovery, and the authoritative success signal.</div></article></div></details></section><section class="dimension"><details><summary><h2>Substance over theater</h2><span class="verdict-pill verdict-adequate">adequate</span></summary><div class="dim-body"><div class="dim-judgment"><p>Most capabilities are concrete and operationally relevant: inventory movements, coupon eligibility, permission examples, order totals, and gateway records have useful detail. Sections 71, 72, 76, 78, and 100 instead rely on qualities such as speed, security, accessibility, and extensibility without enough bounds to support release decisions. There is no evidence of unnecessary innovation/persona content; the problem is incomplete operational precision.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Performance and reliability are activities rather than acceptance bounds (&#167;&#167;71, 74–75, 78) — Image compression, caching, monitoring, and idempotency “as much as possible” do not establish acceptable latency, load, availability, recovery, or guaranteed retry behavior. *Fix:* Agree on traffic assumptions, measured page/API thresholds, critical-operation idempotency guarantees, uptime objectives, RPO/RTO, and monitoring alert conditions.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">Future extensibility is unbounded (&#167;&#167;79, 100) — Replaceable integrations and an architecture that does not prevent marketplace, multi-store, AI, mobile, and multiple currencies could expand P0 indefinitely. *Fix:* Specify the minimum extension seams required now and explicitly defer speculative implementations.</div></article></div></details></section><section class="dimension"><details open><summary><h2>Strategic coherence</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>The P0 list supports a single-store B2C purchase-and-fulfillment loop and aligns with the journeys in sections 83–85 and the launch demonstration in section 99. That is a coherent operational foundation. The product thesis, differentiation, and numerical business outcomes are not available, so this review cannot establish whether the very broad catalog is the minimum useful product for the intended store.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Success metrics cannot validate a product hypothesis (&#167;&#167;87–88; missing &#167;&#167;1–3) — Revenue, conversion, repeat purchase, and operational rates are named without baseline, formula, target, time window, or owner. *Fix:* Confirm the business problem and define a small set of target outcomes plus guardrails, including payment failures and refund/cancellation rates.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">Priority and delivery plan diverge (&#167;&#167;80–82, 97) — P0 customer account/order tracking appears in phase three alongside P1 wishlist/reviews, while operations phase bundles refunds and audit logging deferred by the P1 list. *Fix:* Make the release boundary explicit and map each delivery phase to mandatory P0 outcomes and selected P1 exceptions.</div></article></div></details></section><section class="dimension"><details open><summary><h2>Done-ness clarity</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>Registration, login, password reset, cart addition, coupon invalidity, and draft/publication behavior include observable consequences. Most modules merely list fields or available actions. The critical tests in section 90 are valuable scenario names, but do not specify expected persisted state, financial amounts, permissions, or recovery outcomes. Sections 91–92 set a good readiness/definition-of-done standard that much of the supplied document does not yet meet.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Pricing and accounting rules are missing (&#167;&#167;35, 40–42, 50, 54, 96) — Tax basis, discount ordering/stacking, shipping taxability, rounding, money precision, gross/net revenue definitions, and refund allocation are unspecified. *Fix:* Define a server-authoritative calculation specification with worked totals for discounts, taxes, shipping, cancellation, and partial refunds.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Order/payment/inventory state machines lack enforceable rules (&#167;&#167;18, 31, 36–37, 46, 49, 74–75, 85–86) — Allowed transitions are examples; paid/fulfilled/cancelled invariants and compensation behavior are absent. Available versus reserved stock also lacks a complete definition. *Fix:* Specify complete transition tables, actors, preconditions, forbidden transitions, side effects, reservation expiry, concurrency outcomes, and retry behavior.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Authentication and authorization cannot be acceptance-tested (&#167;&#167;7, 10, 20, 72) — Password policy and reset expiration are unnamed; session lifetime/revocation, admin identity setup, guest order access, per-resource ownership, and the role/action matrix are missing. *Fix:* Define concrete account/session/reset rules, administrator enrollment and elevated-action policy, deny-by-default permission mappings, and ownership checks for customer resources.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Acceptance criteria do not cover major flows (&#167;&#167;17, 28, 36, 43–55, 89–92) — Address/profile changes, tracking access, category deletion, shipping quote failures, cancellation effects, notification delivery failure, duplicate callbacks, and network retry outcomes are not specified. *Fix:* Add requirement-level happy-path, failure, permission, boundary, and concurrency criteria with visible results and persisted state expectations.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Security and recovery policy lacks verifiable scope (&#167;&#167;60–61, 72–74, 78) — Security topics are listed but secret management, webhook verification/replay protection, sensitive-data logging, upload validation, privacy retention/deletion, backup restoration, and incident response are undefined. *Fix:* Write product-specific security and recovery acceptance bounds; decide applicable privacy/payment obligations after confirming the operating market and provider, without assuming a jurisdiction.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">Accessibility, frontend state, and localization bounds are incomplete (&#167;&#167;68–70, 76–77, 96) — Breakpoints exist, but accessibility conformance, supported browsers, keyboard focus/error behavior, RTL launch scope, and frontend behavior during retry or expired reservations are absent. *Fix:* Agree on launch browser/language support, accessibility target, and the checkout/admin error-and-recovery UX criteria.</div></article></div></details></section><section class="dimension"><details open><summary><h2>Scope honesty</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>The excluded first-release features in section 5 and P0/P1/P2 lists make scope substantially clearer than an unprioritized feature catalog. However, several operational essentials are mentioned as mandatory elsewhere while their containing modules are P1, and section 94 assumptions are contradicted by still-open questions in section 96. The document already acknowledges source incompleteness; readers must not mistake its breadth for completeness.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Notifications have conflicting scope signals (&#167;&#167;10, 15, 52–53, 80–81, 85) — Password reset email and checkout confirmation are required, while notifications are P1. *Fix:* Split essential transactional delivery from advanced notification channels and mark each as P0, selected P1, or deferred.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Refunds and audit logging conflict with the launch workflow (&#167;&#167;36, 50, 60–61, 81, 90, 95) — Admin refund actions, refund testing, and audit-based permission risk mitigation appear required, yet refunds and audit logs are P1. *Fix:* Decide the minimum P0 refund/cancellation/support procedure and sensitive-action audit trail; explicitly scope richer return/audit interfaces separately if appropriate.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">COD and language assumptions are not confirmed (&#167;&#167;45, 77, 94, 96) — COD/online payment appear assumed, but whether COD is required remains open. Future bilingual architecture does not settle the first-release language. *Fix:* Convert assumptions into confirmed launch decisions or clearly mark them as pending with owner and impact.</div></article></div></details></section><section class="dimension"><details open><summary><h2>Downstream usability</h2><span class="verdict-pill verdict-thin">thin</span></summary><div class="dim-body"><div class="dim-judgment"><p>Named module sections, initial story IDs, entity inventories, sample API routes, and two user journeys offer a useful starting point for UX and architecture. They do not constitute a traceable SRS: most requirements lack stable IDs, API examples omit schemas and permission/error contracts, and the entity list omits several modeled capabilities. No existing application code is available for checking implementation alignment; the parent project inspection reports BMAD setup only.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Persistence model omits required business concepts (&#167;&#167;19, 30, 43–50, 57, 62–63) — The minimum list does not explicitly account for wishlist items, shipment/tracking records, inventory reservations, payment attempts/events, return line items, homepage content, or currency/price/order snapshots. Its “at least” wording permits additions but does not define them. *Fix:* Derive an entity responsibility map and specify immutable order data, relationships, uniqueness, deletion policy, timestamps, indexes, and transactional constraints in architecture.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">API examples lack contract completeness (&#167;&#167;64–67) — There are no request/response schemas, pagination/filter contracts, authorization mappings, idempotency semantics, webhook endpoints, or error/status conventions for most domains. *Fix:* Specify the contract conventions and critical checkout/admin/provider contracts before dependent stories are scheduled.</div></article><article class="finding"><header><span class="badge badge-sev-high">high</span></header><div class="finding-note">Integration dependencies are unselected and operationally undefined (&#167;&#167;79, 93, 96) — Payment, shipping, messaging, storage, and analytics are dependencies, but providers, sandbox access, credentials ownership, webhook/reconciliation contracts, delivery retries, and production readiness evidence are absent. *Fix:* Choose launch providers and document each integration&#39;s inputs, failure behavior, operational owner, required access, and validation gate.</div></article><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">No requirement-to-test traceability (&#167;&#167;10–15, 83–92, 98) — Story IDs cover only an initial subset; 28 numbered feature epics and the later 22-epic structure use different groupings without a mapping. *Fix:* Assign stable requirement IDs and map P0 requirements to journeys, stories, acceptance criteria, and tests; reconcile the two epic structures.</div></article></div></details></section><section class="dimension"><details><summary><h2>Shape fit</h2><span class="verdict-pill verdict-adequate">adequate</span></summary><div class="dim-body"><div class="dim-judgment"><p>The document is appropriately shaped as a multi-role consumer ecommerce PRD: storefront/admin separation, role distinctions, checkout/fulfillment journeys, and staged priorities are useful. It blends product goals, story drafts, implementation examples, and test/release guidance; that breadth is acceptable as an input bundle, but users should not treat sample API routes or an entity inventory as a completed architecture/SRS. A fresh product brief is optional if the missing foundation can be recovered directly during PRD repair.</p></div></div><div class="findings-list"><article class="finding"><header><span class="badge badge-sev-medium">medium</span></header><div class="finding-note">Journeys lack exceptions and role context (&#167;&#167;6–7, 83–86) — The numbered flows describe the normal customer and admin path but not guest ownership, warehouse/customer-support handoffs, delayed provider callbacks, unsuccessful fulfillment, or account recovery. *Fix:* Add role-specific alternate/error journeys during UX planning and carry their business decisions into the PRD.</div></article></div></details></section><div class="mechanical"><h3>Mechanical notes</h3><pre style="white-space:pre-wrap">- No glossary resolves Order Status versus Fulfillment Status, Pending versus unpaid, Stock versus Available/Reserved Stock, Payment Attempt versus Payment Transaction, or Store Owner versus Super Admin.
+- Section 96 contains thirteen explicit open decision bullets. Section 94 contains seven assumption bullets; they are not linked to requirement IDs or a decision register. There are no structured inline assumption/PM tags whose index could be checked.
+- The supplied source begins with a self-declared incomplete section 4 and continues through section 100; recover missing material before calling the source complete.
+- Initial user-story IDs are useful but do not extend through the whole document; numeric sections are referenceable, but not a replacement for requirement IDs.
+- Section 98&#39;s 22 epic IDs and the earlier 28 feature-epic headings require an explicit mapping before sprint tracking.
+- Counts for this review: 21 substantive findings — 1 critical, 14 high, 6 medium, 0 low. Ratings: 0 strong, 2 adequate, 5 thin, 0 broken. Counts represent rubric findings, not a count of all individual missing requirements.</pre></div><footer class="report-footer">Rubric: .agents/skills/bmad-prd/assets/prd-validation-checklist.md<br>Reviewer: review-rubric.md<br>Generated: 2026-10-05T07:57:40.9017731+00:00</footer></div></body></html>
