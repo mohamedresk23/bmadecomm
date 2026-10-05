@@ -13,6 +13,7 @@ companions:
   - dependencies-and-migrations.md
   - ../../planning-artifacts/prds/prd-bmadecomm-v2-2026-10-05/prd.md
   - ../../planning-artifacts/epics/epics-bmadecomm-2026-10-05/epics.md
+  - ../../planning-artifacts/epics/epics-bmadecomm-2026-10-05/coverage.md
   - ../../planning-artifacts/architecture/architecture-bmadecomm-2026-10-05/ARCHITECTURE-SPINE.md
   - ../../planning-artifacts/architecture/architecture-bmadecomm-2026-10-05/SOLUTION-DESIGN.md
   - ../../planning-artifacts/ux-designs/ux-bmadecomm-2026-10-05/EXPERIENCE.md
@@ -29,26 +30,26 @@ companions:
 
 ## Capabilities
 
-- **CAP-1 — Epic01 ، FR-01–04/43:** **intent:** يصل العميل إلى حسابه ويثبت بريده ويستعيده. **success:** reset أحادي الاستخدام يبطل الجلسات؛ فشل الدخول/الاستعادة لا يكشف الحساب؛ AC-17.
-- **CAP-2 — Epic02 ، FR-06/07/45:** **intent:** يدير المالك وصول الموظفين. **success:** سحب الدور يمنع الطلب التالي وآخر Owner لا يعطل تحت التنافس؛ AC-13.
-- **CAP-3 — Epic03 ، FR-42/22/55:** **intent:** يضبط المالك سياسات البيع. **success:** طرق معطلة مرفوضة و setting جديدة لا تعدل Order قديمة؛ AC-11/19.
-- **CAP-4 — Epic04 ، FR-13–15/16/56/57:** **intent:** ينشئ الفريق كتالوجًا صالحًا للبيع. **success:** variant/SKU/combo فريدة، draft مخفي، upload مخالف مرفوض؛ AC-19/20.
-- **CAP-5 — Epic05 ، FR-30–32/57:** **intent:** يراقب الفريق ويعدل المخزون بأثر صحيح. **success:** Available=1 مع 100 reserve ينتج نجاحًا واحدًا و ledger مطابقًا؛ AC-04.
-- **CAP-6 — Epic06 ، FR-09–12/16:** **intent:** يجد المشتري منتجًا ويختار نوعه. **success:** URL يستعيد البحث/الفلاتر، اختيار النوع يغير بياناته، لا private indexing ؛ AC-19/21.
-- **CAP-7 — Epic07 ، FR-08/11:** **intent:** ينشر المدير محتوى الرئيسية. **success:** preview مخول، draft غير عام، publication متسقة بمراجع منشورة فقط؛ AC-19.
-- **CAP-8 — Epic08 ، FR-19/20/57:** **intent:** يحصل المشتري على سعر وخصم صحيحين. **success:** allocations تطابق total ، coupon cap لا يتجاوز بالتنافس؛ AC-09/10.
-- **CAP-9 — Epic09 ، FR-17/18:** **intent:** يحفظ المشتري سلته ويستأنفها. **success:** الدمج يجمع ثم يقيد المتاح ويوضح الفروق، ولا reserve بمجرد الإضافة؛ AC-05.
-- **CAP-10 — Epic10 ، FR-21–24/26/29/55:** **intent:** يقدم الضيف أو الحساب طلب COD بعد مراجعة. **success:** عشر retries تعيد Order واحدة وحجزًا واحدًا و snapshot ثابتًا؛ AC-02–05/11/12.
-- **CAP-11 — Epic11 ، FR-25/27/28/24/31:** **intent:** يدفع المشتري إلكترونيًا ويعرف الحقيقة رغم الانقطاع. **success:** trusted success مرة واحدة، unknown لا charge جديد، late Paid محفوظ تحت guards ؛ AC-06–08.
-- **CAP-12 — Epic12 ، FR-33–35/39:** **intent:** يؤكد الفريق الطلب أو يلغيه ضمن السياسة. **success:** stale مرفوض، cancellation يحرر مرة واحدة ويخلق مهمة رد المال، print يطابق snapshot ؛ AC-14/23.
-- **CAP-13 — Epic13 ، FR-26/34/36/38/31:** **intent:** يسجل الفريق الشحن والتسليم والقبض والعائد كوقائع مستقلة. **success:** ship يصرف مرة، Delivered COD لا Paid ، inspect فقط يعيد الصالح؛ AC-01/14/16.
-- **CAP-14 — Epic14 ، FR-37:** **intent:** يرد المخول مبلغًا كاملًا أو جزئيًا. **success:** confirmed+Pending refunds≤received ، unknown يبقي budget ، retry لا يضاعف؛ AC-15.
-- **CAP-15 — Epic15 ، FR-05/29/35/03/55:** **intent:** يدير العميل بياناته ويتتبع صاحب الطلب طلبه. **success:** owner ship مفروض، guest read-only ، claim يحتاج الإثباتين، لا تغيير تاريخ الطلب؛ AC-02/12/17.
-- **CAP-16 — Epic16 ، FR-40/07/35:** **intent:** يخدم الدعم العميل بسياق مخول. **success:** note/disable لها أثر، لا inventory/refund/grant غير مصرح، ولا merge بريد تلقائي؛ AC-13.
-- **CAP-17 — Epic17 ، FR-43/44:** **intent:** تصل رسائل الطلب والتنبيهات إلى المعنيين. **success:** email failure لا يلغي Order و retry durable ، Pending لا يعلن Paid ؛ AC-18.
-- **CAP-18 — Epic18 ، FR-60/27/28/44:** **intent:** يعالج الفريق استثناءات التشغيل بأمان. **success:** replay يستعلم عن نفس المحاولة، لا force-paid أو تعديل DB يدوي، trace/audit كامل؛ AC-07/08/18/23.
-- **CAP-19 — Epic19 ، FR-41:** **intent:** يرى المخول مؤشرات تشغيل ومال موثوقة. **success:** dashboard يطابق receipts/refunds/delivered seed وتعريفات §10 ؛ AC-24.
-- **CAP-20 — Epic20 ، FR-46:** **intent:** يقيس الفريق رحلة شراء مأذون بقياسها. **success:** purchase واحد عند Paid online/Confirmed COD ، لا refresh duplicate أو PII ؛ AC-24.
+- **CAP-1 — Epic 01 ، FR-01–04/43:** **intent:** يصل العميل إلى حسابه ويثبت بريده ويستعيده. **success:** reset أحادي الاستخدام يبطل الجلسات؛ فشل الدخول/الاستعادة لا يكشف الحساب؛ AC-17.
+- **CAP-2 — Epic 02 ، FR-06/07/45:** **intent:** يدير المالك وصول الموظفين. **success:** سحب الدور يمنع الطلب التالي وآخر Owner لا يعطل تحت التنافس؛ AC-13.
+- **CAP-3 — Epic 03 ، FR-42/22/55:** **intent:** يضبط المالك سياسات البيع. **success:** طرق معطلة مرفوضة و setting جديدة لا تعدل Order قديمة؛ AC-11/19.
+- **CAP-4 — Epic 04 ، FR-13–15/16/56/57:** **intent:** ينشئ الفريق كتالوجًا صالحًا للبيع. **success:** variant/SKU/combo فريدة، draft مخفي، upload مخالف مرفوض؛ AC-19/20.
+- **CAP-5 — Epic 05 ، FR-30–32/57:** **intent:** يراقب الفريق ويعدل المخزون بأثر صحيح. **success:** Available=1 مع 100 reserve ينتج نجاحًا واحدًا و ledger مطابقًا؛ AC-04.
+- **CAP-6 — Epic 06 ، FR-09–12/16:** **intent:** يجد المشتري منتجًا ويختار نوعه. **success:** URL يستعيد البحث/الفلاتر، اختيار النوع يغير بياناته، لا private indexing ؛ AC-19/21.
+- **CAP-7 — Epic 07 ، FR-08/11:** **intent:** ينشر المدير محتوى الرئيسية. **success:** preview مخول، draft غير عام، publication متسقة بمراجع منشورة فقط؛ AC-19.
+- **CAP-8 — Epic 08 ، FR-19/20/57:** **intent:** يحصل المشتري على سعر وخصم صحيحين. **success:** allocations تطابق total ، coupon cap لا يتجاوز بالتنافس؛ AC-09/10.
+- **CAP-9 — Epic 09 ، FR-17/18:** **intent:** يحفظ المشتري سلته ويستأنفها. **success:** الدمج يجمع ثم يقيد المتاح ويوضح الفروق، ولا reserve بمجرد الإضافة؛ AC-05.
+- **CAP-10 — Epic 10 ، FR-21–24/26/29/55:** **intent:** يقدم الضيف أو الحساب طلب COD بعد مراجعة. **success:** عشر retries تعيد Order واحدة وحجزًا واحدًا و snapshot ثابتًا؛ AC-02–05/11/12.
+- **CAP-11 — Epic 11 ، FR-25/27/28/24/31:** **intent:** يدفع المشتري إلكترونيًا ويعرف الحقيقة رغم الانقطاع. **success:** trusted success مرة واحدة، unknown لا charge جديد، late Paid محفوظ تحت guards ؛ AC-06–08.
+- **CAP-12 — Epic 12 ، FR-33–35/39:** **intent:** يؤكد الفريق الطلب أو يلغيه ضمن السياسة. **success:** stale مرفوض، cancellation يحرر مرة واحدة ويخلق مهمة رد المال، print يطابق snapshot ؛ AC-14/23.
+- **CAP-13 — Epic 13 ، FR-26/34/36/38/31:** **intent:** يسجل الفريق الشحن والتسليم والقبض والعائد كوقائع مستقلة. **success:** ship يصرف مرة، Delivered COD لا Paid ، inspect فقط يعيد الصالح؛ AC-01/14/16.
+- **CAP-14 — Epic 14 ، FR-37:** **intent:** يرد المخول مبلغًا كاملًا أو جزئيًا. **success:** confirmed+Pending refunds≤received ، unknown يبقي budget ، retry لا يضاعف؛ AC-15.
+- **CAP-15 — Epic 15 ، FR-05/29/35/03/55:** **intent:** يدير العميل بياناته ويتتبع صاحب الطلب طلبه. **success:** owner ship مفروض، guest read-only ، claim يحتاج الإثباتين، لا تغيير تاريخ الطلب؛ AC-02/12/17.
+- **CAP-16 — Epic 16 ، FR-40/07/35:** **intent:** يخدم الدعم العميل بسياق مخول. **success:** note/disable لها أثر، لا inventory/refund/grant غير مصرح، ولا merge بريد تلقائي؛ AC-13.
+- **CAP-17 — Epic 17 ، FR-43/44:** **intent:** تصل رسائل الطلب والتنبيهات إلى المعنيين. **success:** email failure لا يلغي Order و retry durable ، Pending لا يعلن Paid ؛ AC-18.
+- **CAP-18 — Epic 18 ، FR-60/27/28/44:** **intent:** يعالج الفريق استثناءات التشغيل بأمان. **success:** replay يستعلم عن نفس المحاولة، لا force-paid أو تعديل DB يدوي، trace/audit كامل؛ AC-07/08/18/23.
+- **CAP-19 — Epic 19 ، FR-41:** **intent:** يرى المخول مؤشرات تشغيل ومال موثوقة. **success:** dashboard يطابق receipts/refunds/delivered seed وتعريفات §10 ؛ AC-24.
+- **CAP-20 — Epic 20 ، FR-46:** **intent:** يقيس الفريق رحلة شراء مأذون بقياسها. **success:** purchase واحد عند Paid online/Confirmed COD ، لا refresh duplicate أو PII ؛ AC-24.
 
 ## Constraints
 

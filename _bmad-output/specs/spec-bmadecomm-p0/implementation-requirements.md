@@ -1,34 +1,34 @@
 # متطلبات التنفيذ وملكية البيانات
 
-النطاق CAP-1–20 فقط. المعمارية و UX مراجع متبناة يجب قراءتها؛ هنا متطلبات عملية تربط أعمال الشاشة والخادم و schema دون إعادة كتابة تفاصيل source. CAP-N يقابل EpicN ، وهو ربط ثابت لا إعادة ترقيم لاحقة. API names/field conventions في api-contracts.md مسودة تقنية مشتركة؛ OQ ليست values قابلة للنشر.
+النطاق CAP-1–20 فقط. المعمارية و UX مراجع متبناة يجب قراءتها؛ هنا متطلبات عملية تربط أعمال الشاشة والخادم و schema دون إعادة كتابة تفاصيل source. CAP-N يقابل EpicN ، وهو ربط ثابت لا إعادة ترقيم لا حقة. API names/field conventions في api-contracts.md مسودة تقنية مشتركة؛ OQ ليست values قابلة للنشر.
 
 ## قواعد الأعمال
 
 | Rule | القاعدة الملزمة | المصدر/القدرات |
 |---|---|---|
-| BR-01 | email normalized unique ؛ auth failures عامة؛ proofs hashed/scoped/single-use ؛ reset/revoke يبطـلان الجلسات، لا customer admin privileges | FR-01–07 ؛ CAP1/2 ؛ AD-9 |
-| BR-02 | active Owner guard serialized تحت grant/revoke/disable ثم count داخل transaction ؛ authorization action/resource/field قبل كشف DTO أو replay | FR-06/07 ؛ CAP2 ؛ AD-9 |
-| BR-03 | publish مستقل عن stock ؛ variants inactive/archived لا شراء جديد؛ duplicate draft لا copiesSKU ؛ referenced hard delete ممنوع | FR-13–16/56 ؛ CAP4/6 ؛ AD-2/14 |
-| BR-04 | cart لا reserve ؛ merge sum ثم clamp ويعرض تغييرات/blocked items ؛ submit يعيد السعر/الأهلية/المخزون | FR-17–19 ؛ CAP9/10 ؛ AD-3/11 |
-| BR-05 | money minor-unit exact مع currency/scale ، proportions exact decimal ثم approved rounding ؛ Sale≤Regular ، ComparePrice/Cost لا يضافان للمبلغ؛ inclusive لا tax إضافية | FR-19/20/57 ؛§6.1 ؛ CAP8/10 ؛ AD-4 |
-| BR-06 | coupon cap ذري مع reserved/consumed claims وهوية أهلية مثبتة؛ failed attempt لا يحرر claim إذا retry قائم؛ release عند إنهاء غير المقبول. سياسة منع إعادة cap بعد accepted مقترح source | FR-20 ؛§6.1 ؛ CAP8/10/11 ؛ AD-4 |
-| BR-07 | Order Pending/snapshots/reservation/key/attempt/outbox commit قبل provider network ؛ لا network داخل lock transaction ؛ same key+same hash نفس المورد، altered payload conflict | FR-23/24 ؛ CAP10/11 ؛ AD-3/5/6 |
-| BR-08 | balance+ledger+allocation mutations ذرية؛ locks Order ثم variants تصاعديًا ثم coupon ، refund Order ثم receipts/budgets ترتيب ID ؛ no oversell عند تعطيل backorders | FR-30–32/37 ؛ CAP5/10/11/13/14 ؛ AD-3/8 |
-| BR-09 | timelyPaid يحول expiring hold لتخصيص دائم لا خصم OnHand ؛ ship ينقص OnHand و Reserved مرة؛ expired غير صالح ولو worker متأخر | FR-31 ؛ CAP5/11/13 ؛ AD-7/13 |
-| BR-10 | signed callback أو trusted query يثبت Paid ؛ redirect عرض فقط؛ duplicate/out-of-order reducer لا يعكس Paid. unknown لا ينشئ محاولة مالية جديدة | FR-25/27 ؛ CAP11 ؛ AD-5/6 |
-| BR-11 | late Paid receipt دائم، full stock reacquire ذرّي إن noncancelled ومتاح وإلا refund-task/blockship ؛ coupon cap exception لا rollback للقبض ولا تغير snapshot ويحتاج settlement decision | FR-28 ؛ CAP11/14/18 ؛ AD-4/6 |
-| BR-12 | ثلاث حالات مستقلة من PRD§7 ؛ stale expected_version conflict ؛ customer cancel request لا administrative cancel ؛ Cancelled نهائي لا تجهيز جديد | FR-33–36 ؛ CAP12/13/15 ؛ AD-7 |
-| BR-13 | Delivered COD لا Paid ؛ collection amount/time/ref مخولة idempotent ؛ discrepancy visible ؛ refund COD payout confirmed خارجي | FR-26/37 ؛ CAP13/14 ؛ AD-7/8 |
-| BR-14 | confirmed+unresolved refund sums≤confirmedreceipts ؛ budget قبل network ؛ unknown يبقيه، definitive failure يحرره؛ no restock by refund | FR-37/38 ؛ CAP14/13 ؛ AD-8 |
-| BR-15 | returned unit count لا يتجاوز shippedremaining ؛ inspect الصالح فقط available ، damaged حركةمنفصلة؛ partial return يبقي Delivered حتى all returned | FR-38 ؛§7.2 ؛ CAP13 ؛ AD-8 |
-| BR-16 | snapshots money/items/addresses ثابتة؛ archive/profile/settings لا rewritehistorical ، currency change بعد first order خارج MVP ؛ print ليس taxinvoice معتمدة | FR-39/42/55 ؛ CAP3/10/12/15 ؛ AD-4 |
-| BR-17 | guest read proof طلب واحد فقط؛ secret invalid لا existence leak ؛ claim email proof+order proof ؛لا guest read mutation/refund/editmail | FR-03/29/35 ؛ CAP10/15/16 ؛ AD-9 |
-| BR-18 | outbox/audit مع source transaction ؛ worker at-least-once مع dedupe/lease ؛ email failure لا rollback ؛ recovery مخولة لا forcepaid | FR-43–45/60 ؛ CAP1/2/17/18 ؛ AD-13/15 |
-| BR-19 | مالية dashboard من receipts/refunds/fulfillment وفق§10 لا analytics ولا أسعار حية؛ purchase onlinePaid/CODConfirmed مرة، consent قبل telemetry ولا PII | FR-41/46 ؛ CAP19/20 ؛ AD-15 |
+| BR-01 | email normalized unique ؛ auth failures عامة؛ proofs hashed/scoped/single-use ؛ reset/revoke يبطـلان الجلسات، لا customer admin privileges | FR-01–07 ؛ CAP-1/2 ؛ AD-9 |
+| BR-02 | active Owner guard serialized تحت grant/revoke/disable ثم count داخل transaction ؛ authorization action/resource/field قبل كشف DTO أو replay | FR-06/07 ؛ CAP-2 ؛ AD-9 |
+| BR-03 | publish مستقل عن stock ؛ variants inactive/archived لا شراء جديد؛ duplicate draft لا copiesSKU ؛ referenced hard delete ممنوع | FR-13–16/56 ؛ CAP-4/6 ؛ AD-2/14 |
+| BR-04 | cart لا reserve ؛ merge sum ثم clamp ويعرض تغييرات/blocked items ؛ submit يعيد السعر/الأهلية/المخزون | FR-17–19 ؛ CAP-9/10 ؛ AD-3/11 |
+| BR-05 | money minor-unit exact مع currency/scale ، proportions exact decimal ثم approved rounding ؛ Sale≤Regular ، ComparePrice/Cost لا يضافان للمبلغ؛ inclusive لا tax إضافية | FR-19/20/57 ؛ §6.1 ؛ CAP-8/10 ؛ AD-4 |
+| BR-06 | coupon cap ذري مع reserved/consumed claims وهوية أهلية مثبتة؛ failed attempt لا يحرر claim إذا retry قائم؛ release عند إنهاء غير المقبول. سياسة منع إعادة cap بعد accepted مقترح source | FR-20 ؛ §6.1 ؛ CAP-8/10/11 ؛ AD-4 |
+| BR-07 | Order Pending/snapshots/reservation/key/attempt/outbox commit قبل provider network ؛ لا network داخل lock transaction ؛ same key+same hash نفس المورد، altered payload conflict | FR-23/24 ؛ CAP-10/11 ؛ AD-3/5/6 |
+| BR-08 | balance+ledger+allocation mutations ذرية؛ locks Order ثم variants تصاعديًا ثم coupon ، refund Order ثم receipts/budgets ترتيب ID ؛ no oversell عند تعطيل backorders | FR-30–32/37 ؛ CAP-5/10/11/13/14 ؛ AD-3/8 |
+| BR-09 | timelyPaid يحول expiring hold لتخصيص دائم لا خصم OnHand ؛ ship ينقص OnHand و Reserved مرة؛ expired غير صالح ولو worker متأخر | FR-31 ؛ CAP-5/11/13 ؛ AD-7/13 |
+| BR-10 | signed callback أو trusted query يثبت Paid ؛ redirect عرض فقط؛ duplicate/out-of-order reducer لا يعكس Paid. unknown لا ينشئ محاولة مالية جديدة | FR-25/27 ؛ CAP-11 ؛ AD-5/6 |
+| BR-11 | late Paid receipt دائم، full stock reacquire ذرّي إن noncancelled ومتاح وإلا refund-task/blockship ؛ coupon cap exception لا rollback للقبض ولا تغير snapshot ويحتاج settlement decision | FR-28 ؛ CAP-11/14/18 ؛ AD-4/6 |
+| BR-12 | ثلاث حالات مستقلة من PRD§7 ؛ stale expected_version conflict ؛ customer cancel request لا administrative cancel ؛ Cancelled نهائي لا تجهيز جديد | FR-33–36 ؛ CAP-12/13/15 ؛ AD-7 |
+| BR-13 | Delivered COD لا Paid ؛ collection amount/time/ref مخولة idempotent ؛ discrepancy visible ؛ refund COD payout confirmed خارجي | FR-26/37 ؛ CAP-13/14 ؛ AD-7/8 |
+| BR-14 | confirmed+unresolved refund sums≤confirmedreceipts ؛ budget قبل network ؛ unknown يبقيه، definitive failure يحرره؛ no restock by refund | FR-37/38 ؛ CAP-14/13 ؛ AD-8 |
+| BR-15 | returned unit count لا يتجاوز shippedremaining ؛ inspect الصالح فقط available ، damaged حركةمنفصلة؛ partial return يبقي Delivered حتى all returned | FR-38 ؛ §7.2 ؛ CAP-13 ؛ AD-8 |
+| BR-16 | snapshots money/items/addresses ثابتة؛ archive/profile/settings لا rewritehistorical ، currency change بعد first order خارج MVP ؛ print ليس taxinvoice معتمدة | FR-39/42/55 ؛ CAP-3/10/12/15 ؛ AD-4 |
+| BR-17 | guest read proof طلب واحد فقط؛ secret invalid لا existence leak ؛ claim email proof+order proof ؛ لا guest read mutation/refund/editmail | FR-03/29/35 ؛ CAP-10/15/16 ؛ AD-9 |
+| BR-18 | outbox/audit مع source transaction ؛ worker at-least-once مع dedupe/lease ؛ email failure لا rollback ؛ recovery مخولة لا forcepaid | FR-43–45/60 ؛ CAP-1/2/17/18 ؛ AD-13/15 |
+| BR-19 | مالية dashboard من receipts/refunds/fulfillment وفق§10 لا analytics ولا أسعار حية؛ purchase onlinePaid/CODConfirmed مرة، consent قبل telemetry ولا PII | FR-41/46 ؛ CAP-19/20 ؛ AD-15 |
 
 ## واجهة وخادم وبيانات كل قدرة
 
-الأسماء في DB استراتيجية changes لا SQL جاهز. FKs/uniques/checks المنفذة لاحقًا جزء acceptance ،وليست مهمة هذه الجولة.
+الأسماء في DB استراتيجية changes لا SQL جاهز. FKs/uniques/checks المنفذة لا حقًا جزء acceptance ، وليست مهمة هذه الجولة.
 
 | CAP | Frontend/UX المطلوبة | Backend owner ship والعمليات | تغييرات DB والعقد الحاسم |
 |---|---|---|---|
@@ -56,20 +56,20 @@
 ## validation rules
 
 - طلبات HTTP تتحقق runtime من shape/type/required/allowlist ؛ unknown writablefields ترفض؛ TypeScript وحده ليس validator. لا massassignment amount/status/actor/roles.
-- الاسم/email/phone/password registration required ؛ normalized email unique تحت concurrency. exactnormalization/phone/textlimits/passwordvalues gateFR58/OQ06 ؛لا regex سوق مفترض.
+- الاسم/email/phone/password registration required ؛ normalized email unique تحت concurrency. exactnormalization/phone/textlimits/passwordvalues gateFR58/OQ-06 ؛ لا regex سوق مفترض.
 - addresses country/governorate/city-or-zone/line/building/phone ؛ postal conditionalmethod ؛ billing default shipping مع splitexplicit ؛ shippingeligibility على الخادم من approved policy ، no taxzero fallback.
-- quantity integer positive وحدود available عند no-backorders ؛ variantchoicesrequired و active published ؛القيم submittedmoney ليستحقيقة.
+- quantity integer positive وحدود available عند no-backorders ؛ variantchoicesrequired و active published ؛ القيم submittedmoney ليستحقيقة.
 - productname/categoryvalid/nonnegprice/SKUunique/uniquecombo ؛ Sale>Regular reject ؛ categoryparentcycle reject ؛ archive referenced category يتطلب reassignment.
 - coupon time/eligibility/usage caps/minimum/max مأخوذةمن approvedrule ؛ wrong customer proofreject ؛ limits underrowlocks.
 - expected_version mandatorymutations لموارد mutable ؛ keys charge/refund/stock/submit scoped+hash ؛ same payload return same ، changedpayload409.
-- uploads actualdecode/type/size/count/quarantine/publish ؛حدود JPEG/PNG/WebP/5MB/10images proposedA11 ،رفض wrongactualtype قبل publicreference.
+- uploads actualdecode/type/size/count/quarantine/publish ؛ حدود JPEG/PNG/WebP/5MB/10images proposedA11 ، رفض wrongactualtype قبل publicreference.
 - transitions من PRD§7 ، no free PATCHfinancialstate ؛ refundableamount يشمل Pending budget ؛ returned quantity≤shippedminuspreviousreturns.
 
 ## permissions/security
 
 denydefault لكل action/resource/field ؛ policy names implementationcontract مشتركة قبل قصصها، orders.refund ثابت من PRD. Owner لا يتجاوز financialinvariants ؛ Manager لا rolegrant/secretadmin/refund بلا grant ؛ Warehouse لا cost/refund/pricing/financialreports ؛ Support لا inventory/pricing/refund/roles ؛ Marketing فقط coupons/content/explicitreports ؛ Customer ownonly ؛ Guest catalog/cart و readproofsingleorder.
 
-Opaque session server-side separatecustomer/admin ، hashsecrets/cookiesSecureHttpOnly ، currentstatus/grantsnextrequest ، CSRF+Origin ، parameterizedSQL/outputencoding/CSP/bodylimits ، shared atomic ratelimiter ، TLS/leastprivilege/secretsperenv. password/MFA/recovery/timevalues تظل A09/OQ06 ؛ library مدققة لا cryptohandrolled. لا rawcards/proofs/passwords/PII غير لازم في logs/clientcache/analytics.
+Opaque session server-side separatecustomer/admin ، hashsecrets/cookiesSecureHttpOnly ، currentstatus/grantsnextrequest ، CSRF+Origin ، parameterizedSQL/outputencoding/CSP/bodylimits ، shared atomic ratelimiter ، TLS/leastprivilege/secretsperenv. password/MFA/recovery/timevalues تظل A09/OQ-06 ؛ library مدققة لا cryptohandrolled. لا rawcards/proofs/passwords/PII غير لا زم في logs/clientcache/analytics.
 
 ## loading/empty/failure/success
 
