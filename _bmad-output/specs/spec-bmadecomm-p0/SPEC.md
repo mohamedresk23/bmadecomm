@@ -43,7 +43,7 @@ companions:
 - **CAP-12 — Epic12 ، FR-33–35/39:** **intent:** يؤكد الفريق الطلب أو يلغيه ضمن السياسة. **success:** stale مرفوض، cancellation يحرر مرة واحدة ويخلق مهمة رد المال، print يطابق snapshot ؛ AC-14/23.
 - **CAP-13 — Epic13 ، FR-26/34/36/38/31:** **intent:** يسجل الفريق الشحن والتسليم والقبض والعائد كوقائع مستقلة. **success:** ship يصرف مرة، Delivered COD لا Paid ، inspect فقط يعيد الصالح؛ AC-01/14/16.
 - **CAP-14 — Epic14 ، FR-37:** **intent:** يرد المخول مبلغًا كاملًا أو جزئيًا. **success:** confirmed+Pending refunds≤received ، unknown يبقي budget ، retry لا يضاعف؛ AC-15.
-- **CAP-15 — Epic15 ، FR-05/29/35/03/55:** **intent:** يدير العميل بياناته ويتتبع صاحب الطلب طلبه. **success:** ownership مفروض، guest read-only ، claim يحتاج الإثباتين، لا تغيير تاريخ الطلب؛ AC-02/12/17.
+- **CAP-15 — Epic15 ، FR-05/29/35/03/55:** **intent:** يدير العميل بياناته ويتتبع صاحب الطلب طلبه. **success:** owner ship مفروض، guest read-only ، claim يحتاج الإثباتين، لا تغيير تاريخ الطلب؛ AC-02/12/17.
 - **CAP-16 — Epic16 ، FR-40/07/35:** **intent:** يخدم الدعم العميل بسياق مخول. **success:** note/disable لها أثر، لا inventory/refund/grant غير مصرح، ولا merge بريد تلقائي؛ AC-13.
 - **CAP-17 — Epic17 ، FR-43/44:** **intent:** تصل رسائل الطلب والتنبيهات إلى المعنيين. **success:** email failure لا يلغي Order و retry durable ، Pending لا يعلن Paid ؛ AC-18.
 - **CAP-18 — Epic18 ، FR-60/27/28/44:** **intent:** يعالج الفريق استثناءات التشغيل بأمان. **success:** replay يستعلم عن نفس المحاولة، لا force-paid أو تعديل DB يدوي، trace/audit كامل؛ AC-07/08/18/23.
