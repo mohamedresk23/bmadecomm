@@ -7,3 +7,4 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER audit_events_no_update_delete
 BEFORE UPDATE OR DELETE ON "audit_events"
 FOR EACH ROW EXECUTE FUNCTION audit_events_block_mutation();
+-- Custom SQL migration file, put your code below! --

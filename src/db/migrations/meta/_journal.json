@@ -22,6 +22,20 @@
       "when": 1791236919633,
       "tag": "0002_audit_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791236971087,
+      "tag": "0003_outbox_jobs_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791238092758,
+      "tag": "0004_media_storage",
+      "breakpoints": true
     }
   ]
 }
