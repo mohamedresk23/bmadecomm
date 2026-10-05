@@ -24,10 +24,15 @@ jobs:
 
       - name: Check for secrets
         run: |
-          echo "Secret scan placeholder - replace with actual tool like trufflehog or git-secrets"
-          if grep -iR "password=" .; then
-            echo "Secrets found!"
+          # Basic check of tracked files only; this is not a full secret scanner.
+          scan_status=0
+          git grep -i -I -l -e '[p]assword=' -- . || scan_status=$?
+          if [ "$scan_status" -eq 0 ]; then
+            echo "Potential secrets found in the files listed above."
             exit 1
+          elif [ "$scan_status" -ne 1 ]; then
+            echo "Secret check failed to run."
+            exit "$scan_status"
           fi
 
       - name: Lint
