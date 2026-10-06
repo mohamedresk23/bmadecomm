@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
 // (see migration 0002_audit_append_only).
@@ -79,3 +80,43 @@ export const media = pgTable("media", {
   status: text("status").notNull(), // 'pending' | 'active'
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+export const operationKeys = pgTable("operation_keys", {
+  id: text("id").primaryKey(),
+  actor: text("actor").notNull(),
+  operation: text("operation").notNull(),
+  key: text("key").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  result: jsonb("result"),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [uniqueIndex("operation_keys_scope_uq").on(t.actor, t.operation, t.key),
+  check("operation_keys_hash_check", sql`${t.payloadHash} ~ '^[0-9a-f]{64}$'`),
+  check("operation_keys_completion_check", sql`${t.completedAt} IS NOT NULL OR ${t.result} IS NULL`)]);
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  scope: text("scope").$type<"admin" | "customer">().notNull(),
+  subject: text("subject").notNull(),
+  idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
+  absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [index("sessions_subject_idx").on(t.subject),
+  check("sessions_scope_check", sql`${t.scope} IN ('admin', 'customer')`),
+  check("sessions_hash_check", sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("sessions_expiry_check", sql`${t.createdAt} < ${t.idleExpiresAt} AND ${t.idleExpiresAt} <= ${t.absoluteExpiresAt}`)]);
+
+export const proofTokens = pgTable("proof_tokens", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  purpose: text("purpose").$type<"password_reset" | "email_verification">().notNull(),
+  subject: text("subject").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [index("proof_tokens_subject_purpose_idx").on(t.subject, t.purpose),
+  check("proof_tokens_purpose_check", sql`${t.purpose} IN ('password_reset', 'email_verification')`),
+  check("proof_tokens_hash_check", sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`),
+  check("proof_tokens_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`)]);

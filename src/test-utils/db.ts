@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { DbContext } from "../db/tx";
+import { DbContext, TransactionContext } from "../db/tx";
 import { runMigrations } from "../db/migrate";
 
 export class TestRollbackError extends Error {
@@ -13,10 +13,10 @@ export class TestRollbackError extends Error {
  * Runs a test inside a database transaction and immediately rolls it back.
  * This guarantees complete isolation between tests and leaves the DB clean.
  */
-export async function withIsolatedTx(callback: (tx: DbContext) => Promise<void>) {
+export async function withIsolatedTx(callback: (tx: TransactionContext) => Promise<void>) {
   try {
     await db.transaction(async (tx) => {
-      await callback(tx as DbContext);
+      await callback(tx as TransactionContext);
       throw new TestRollbackError();
     });
   } catch (err: unknown) {

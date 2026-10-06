@@ -7,10 +7,10 @@ import { db } from "./index";
 
 // A unified transaction context that allows passing either the root `db` instance
 // or an active transaction to functions that execute queries.
-export type DbContext =
-  | typeof db
+export type TransactionContext =
   | PgTransaction<PostgresJsQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>
   | PgTransaction<PgliteQueryResultHKT, typeof schema, ExtractTablesWithRelations<typeof schema>>;
+export type DbContext = typeof db | TransactionContext;
 
 /**
  * Execute a unit of work inside a transaction.
@@ -19,7 +19,7 @@ export type DbContext =
  */
 export async function withTransaction<T>(
   context: DbContext,
-  callback: (tx: DbContext) => Promise<T>
+  callback: (tx: TransactionContext) => Promise<T>
 ): Promise<T> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return context.transaction(callback as any);

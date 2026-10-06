@@ -9,6 +9,17 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bmadecomm_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -39,7 +50,15 @@ jobs:
         run: npm run lint
 
       - name: Typecheck
-        run: npm run typecheck || echo "Typecheck step needs configuration"
+        run: npx next typegen && npm run typecheck
+
+      - name: Unit and foundation tests
+        run: npm run test
+
+      - name: PostgreSQL concurrency and migration tests
+        run: npm run test:postgres
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/bmadecomm_test
 
       - name: Build
         run: npm run build

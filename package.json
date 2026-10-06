@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:postgres": "vitest run --config vitest.postgres.config.ts"
   },
   "dependencies": {
     "@paralleldrive/cuid2": "^3.3.0",

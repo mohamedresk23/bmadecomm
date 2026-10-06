@@ -1,6 +1,6 @@
 import { migrate as migratePg } from "drizzle-orm/postgres-js/migrator";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
-import { db } from "./index";
+import { db, isPostgresTest } from "./index";
 import path from "path";
 import fs from "fs";
 
@@ -14,7 +14,7 @@ export async function runMigrations() {
   }
 
   console.log("Running migrations...");
-  if (process.env.NODE_ENV === "test") {
+  if (process.env.NODE_ENV === "test" && !isPostgresTest) {
     // db is Pglite database
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await migratePglite(db as any, { migrationsFolder });
