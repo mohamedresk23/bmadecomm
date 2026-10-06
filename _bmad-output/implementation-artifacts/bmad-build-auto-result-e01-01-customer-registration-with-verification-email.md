@@ -24,3 +24,12 @@ Files created by this run:
 - `_bmad-output/implementation-artifacts/bmad-build-auto-result-e01-01-customer-registration-with-verification-email.md`
 
 Follow-up: resume E01-01 with a clean working tree, or explicitly authorize bypassing the skill's clean-tree requirement while preserving existing work.
+
+## Restarted Run — 2026-10-06
+
+Status: blocked
+Blocking condition: intent gap / unresolved identity security contracts and missing F00-06 dependency.
+
+The previous dirty-tree blocker is resolved. Git was clean and index refresh succeeded. Current code, reusable transactions/API validation/outbox/email infrastructure, story acceptance criteria, cached Epic 1 context, and explicit planning gates were inspected. The proposed file map and acceptance verification plan are recorded in `spec-e01-01-customer-registration-with-verification-email.md`.
+
+E01-01 depends on F00-06, which remains blocked with no proof primitives in the codebase. The approved password hash, password/proof policy, and shared rate-limit contracts required before identity stories remain unresolved. The invoked skill requires a planning HALT rather than inventing these contracts. No application code changed and no implementation verification commands ran. This restarted run adds the E01-01 planning spec and updates this report only.
