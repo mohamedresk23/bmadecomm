@@ -1,10 +1,10 @@
 import sharp from "sharp";
 import { createId } from "@paralleldrive/cuid2";
-import path from "node:path";
-import fs from "node:fs/promises";
 import { db } from "../../db";
 import { media } from "../../db/schema";
 import { ApiError } from "../../shared/api/errors";
+import { storage } from "./storage";
+import { eq } from "drizzle-orm";
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -82,24 +82,42 @@ export async function processAndSaveMedia(file: File) {
   const id = createId();
   const filename = `${id}.${extension}`;
   
-  // Storage location strategy: "public/uploads"
-  const uploadDir = path.join(process.cwd(), "public", "uploads");
-  await fs.mkdir(uploadDir, { recursive: true });
-  const filePath = path.join(uploadDir, filename);
-
-  await fs.writeFile(filePath, processedBuffer);
+  await storage.savePrivate(filename, processedBuffer);
 
   await db.insert(media).values({
     id,
     filename,
     mimeType: detectedMime,
     size: processedBuffer.length,
-    status: "active",
+    status: "pending",
   });
 
   return {
     id,
-    url: `/uploads/${filename}`,
+    status: "pending",
+  };
+}
+
+export async function publishMedia(id: string) {
+  const records = await db.select().from(media).where(eq(media.id, id));
+  if (records.length === 0) {
+    throw new ApiError(404, "NOT_FOUND", "Media not found");
+  }
+
+  const record = records[0];
+  if (record.status === "active") {
+    return { id: record.id, url: `/uploads/${record.filename}` };
+  }
+
+  const url = await storage.publish(record.filename);
+
+  await db.update(media)
+    .set({ status: "active" })
+    .where(eq(media.id, id));
+
+  return {
+    id: record.id,
+    url,
   };
 }
 
