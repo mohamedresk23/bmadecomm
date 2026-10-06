@@ -28,8 +28,8 @@ export async function runMigrations() {
 
 // Run directly if invoked as script
 if (require.main === module) {
-  runMigrations().then(() => process.exit(0)).catch(err => {
-    console.error("Migration failed", err);
+  runMigrations().then(() => process.exit(0)).catch(() => {
+    console.error("Migration failed");
     process.exit(1);
   });
 }

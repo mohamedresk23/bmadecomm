@@ -48,11 +48,11 @@ describe("registration form with real API/database/worker", () => {
     expect(form.getAttribute("aria-busy")).toBe("true"); expect(passwordInput().value).toBe("");
     release();
     await waitFor(() => expect(screen.getByRole("heading", { name: "Registration successful" })).toBeTruthy());
-    expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Registration successful" }));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Registration successful" })));
     expect(screen.getByRole("status").textContent).toContain("check your email");
     const rows = await db.select().from(users).where(eq(users.email, values.email)); expect(rows).toHaveLength(1);
     const worker = composeIdentityWorker(db); await worker.runOnce();
-    expect(worker.adapter.sent.find(message => message.to === values.email)?.data.verificationUrl).toContain("http://localhost:3000/verify-email?");
+    expect(worker.adapter.sent.find(message => message.to === values.email)?.data.verificationUrl).toContain("http://localhost:3000/verify-email#");
   });
   it("maps actual backend validation fields and preserves non-sensitive values", async () => {
     const values = valid();

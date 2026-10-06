@@ -20,8 +20,7 @@ export function createVerificationEmailHandler(adapter: EmailAdapter, config: { 
       if (record.consumedAt || record.expiresAt.getTime() <= Date.now()) return;
       const token = decryptToken(payload.encryptedToken, config.key, payload.userId, payload.proofId);
       const url = new URL("/verify-email", config.origin);
-      url.searchParams.set("token", token);
-      url.searchParams.set("user", payload.userId);
+      url.hash = new URLSearchParams({ token, user: payload.userId }).toString();
       await deliver({ ...item, payload: { to: record.email, recipientRef: `user:${payload.userId}`,
         template: "customer-verification", data: { verificationUrl: url.toString() } } }, db);
     } catch {

@@ -73,7 +73,7 @@ describe("atomic registration and proof/email integration", () => {
     const handler = createVerificationEmailHandler(adapter, { key, origin: "http://localhost:3000" });
     await runOnce(db, { handlers: { CustomerRegistered: handler } });
     const sent = adapter.sent.find(message => message.to === input.email)!;
-    expect(new URL(sent.data.verificationUrl as string).searchParams.get("token")).toBe(token);
+    expect(new URLSearchParams(new URL(sent.data.verificationUrl as string).hash.slice(1)).get("token")).toBe(token);
     await handler(events[0], db);
     expect(adapter.sent.filter(message => message.to === input.email)).toHaveLength(1);
     for (const wrong of [{ token, userId: randomUUID(), purpose: "verification" }, { token, userId: user.id, purpose: "password_reset" }, { token: "forged", userId: user.id, purpose: "verification" }]) expect(await consumeProof(db, wrong)).toBe(false);

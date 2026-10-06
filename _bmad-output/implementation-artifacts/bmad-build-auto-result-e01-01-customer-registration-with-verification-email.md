@@ -4,6 +4,8 @@ status: done
 
 # BMad Build Auto Result
 
+Current completion: `spec-e01-local-postgresql-full-verification.md` records successful local PostgreSQL setup, inspectable private Sandbox mail and account activation. All nine real HTTP/PostgreSQL/headless Edge groups passed, including twelve independent connections, expiry during account/proof lock waits, deliberate email-link confirmation and used/expired UI rejection. Final suite: 94 passed, one pre-existing todo. Lint (zero errors/three unchanged warnings), typecheck and build passed. All 16 review findings were fixed. Exact setup, all 39 files and evidence are in `docs/local-postgresql-verification.md`. The historical sandbox-only completion below describes earlier revisions; complete development-path evidence is now recorded. Remaining E01-02 resend, full F00-06 and production remain incomplete.
+
 Story: E01-01 — Customer registration with verification email
 
 ## Auto Run Result
@@ -44,4 +46,4 @@ Registration creates one unverified customer with customer role only, uses appro
 
 Final verification: 76 passing tests plus one pre-existing todo; 34 story tests included. Affected application tests passed again (15) after the final IPv6 fallback assertion. Lint passes with three unchanged warnings, typecheck passes, build passes, and whitespace checks pass. Review fixes and individual triage are recorded in the current specification. Independent PostgreSQL-connection concurrency evidence remains unavailable locally and is required before production readiness.
 
-E01-01 depends on F00-06, which remains blocked with no proof primitives in the codebase. The approved password hash, password/proof policy, and shared rate-limit contracts required before identity stories remain unresolved. The invoked skill requires a planning HALT rather than inventing these contracts. No application code changed and no implementation verification commands ran. This restarted run adds the E01-01 planning spec and updates this report only.
+Historical pre-approval blocker (superseded by the approved implementation and current completion): E01-01 depended on blocked F00-06 with no proof primitives, and password/proof/rate contracts had not yet been approved. That earlier attempt stopped at planning. The later approved implementation above and full local result now supersede those conditions.
