@@ -7,9 +7,12 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "identity:setup": "tsx scripts/setup-identity.ts",
+    "identity:worker": "tsx scripts/identity-worker.ts"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.2.2",
     "@paralleldrive/cuid2": "^3.3.0",
     "dotenv": "^18.0.5",
     "drizzle-orm": "^0.45.3",

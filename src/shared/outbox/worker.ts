@@ -33,8 +33,9 @@ export function computeBackoffMs(attempt: number, baseMs: number, maxMs: number,
  */
 export async function claimBatch(
   db: DbContext,
-  opts: { batchSize?: number; leaseMs?: number; now?: Date } = {}
+  opts: { batchSize?: number; leaseMs?: number; now?: Date; topics?: string[] } = {}
 ): Promise<OutboxItem[]> {
+  if (opts.topics?.length === 0) return [];
   const now = opts.now ?? new Date();
   const leaseUntil = new Date(now.getTime() + (opts.leaseMs ?? DEFAULTS.leaseMs));
   return db.transaction(async (tx) => {
@@ -43,6 +44,7 @@ export async function claimBatch(
       .from(outbox)
       .where(
         and(
+          opts.topics ? inArray(outbox.topic, opts.topics) : undefined,
           lt(outbox.attempts, outbox.maxAttempts),
           or(
             and(eq(outbox.status, "pending"), lte(outbox.nextAttemptAt, now)),
@@ -63,11 +65,11 @@ export async function claimBatch(
 }
 
 /** Expired leases that have no attempts left are terminal: mark failed. */
-async function failExhaustedLeases(db: DbContext, now: Date): Promise<void> {
+async function failExhaustedLeases(db: DbContext, now: Date, topics: string[]): Promise<void> {
   await db
     .update(outbox)
     .set({ status: "failed", lockedUntil: null, lastError: sql`coalesce(${outbox.lastError}, 'lease expired')`, updatedAt: now })
-    .where(and(eq(outbox.status, "processing"), lt(outbox.lockedUntil, now), sql`${outbox.attempts} >= ${outbox.maxAttempts}`));
+    .where(and(inArray(outbox.topic, topics), eq(outbox.status, "processing"), lt(outbox.lockedUntil, now), sql`${outbox.attempts} >= ${outbox.maxAttempts}`));
 }
 
 function errorMessage(err: unknown): string {
@@ -81,10 +83,12 @@ function errorMessage(err: unknown): string {
  * Returns the number of items processed.
  */
 export async function runOnce(db: DbContext, options: WorkerOptions): Promise<number> {
+  const topics = Object.keys(options.handlers);
+  if (topics.length === 0) return 0;
   const clock = options.now ?? (() => new Date());
   const cfg = { ...DEFAULTS, ...options };
-  await failExhaustedLeases(db, clock());
-  const items = await claimBatch(db, { batchSize: cfg.batchSize, leaseMs: cfg.leaseMs, now: clock() });
+  await failExhaustedLeases(db, clock(), topics);
+  const items = await claimBatch(db, { batchSize: cfg.batchSize, leaseMs: cfg.leaseMs, now: clock(), topics });
 
   for (const item of items) {
     const startedAt = clock();
