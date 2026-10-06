@@ -46,3 +46,12 @@ Status: blocked
 Blocking condition: dirty working tree (the previous workflow HALT result record is untracked).
 
 The workflow requires a clean working tree before planning. No ACLs were changed, no files were deleted, and no commit was created. F00-06 remains unimplemented; tests, lint, typecheck, and build were not run.
+
+### Latest entrypoint restart after policy discussion
+
+The approved render entrypoint succeeded. The previous planning/HALT artifact was committed alone in `0f4ad7ce459e63e9aff5bfce86f8b0da89b93874` (`docs: record F00-06 policy planning blocker`), under the user's existing authorization to save required standalone reports. Official escalation was used for Git writes. The mandatory refresh succeeded and the working tree was clean afterward.
+
+Status: blocked
+Blocking condition: unresolved policy contract affecting implementation.
+
+The prior decision discussion presented recommendations only; the user explicitly required approval before treating them as adopted. The repeated implementation request does not select among those policy alternatives. OQ-06/A-09/A-10 and AD-5 retention remain unresolved, including whether a policy-injected foundation without automatic key deletion and with a limited identity-owned session store is approved. No application code changed; no verification commands ran. This HALT record is the only new modification from this attempt.
