@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# Private local database binaries/data, sandbox emails and verification artifacts
+/.local/
+
 # next.js
 /.next/
 /out/

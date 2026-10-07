@@ -1,4 +1,5 @@
-import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
 // (see migration 0002_audit_append_only).
@@ -79,3 +80,31 @@ export const media = pgTable("media", {
   status: text("status").notNull(), // 'pending' | 'active'
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
+
+// E01-01: Customer registration
+export const users = pgTable("users", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(), // Normalized email
+  phone: text("phone").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("customer"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [check("users_email_normalized", sql`${t.email} = lower(btrim(${t.email}))`)]);
+
+export const proofTokens = pgTable("proof_tokens", {
+  id: text("id").primaryKey(),
+  tokenHash: text("token_hash").notNull().unique(),
+  userId: text("user_id").notNull().references(() => users.id),
+  purpose: text("purpose").notNull(), // e.g. 'verification', 'password_reset'
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+
+export const registrationRateBuckets = pgTable("registration_rate_buckets", {
+  key: text("key").primaryKey(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull(),
+}, t => [check("registration_rate_attempts_positive", sql`${t.attempts} > 0`)]);
