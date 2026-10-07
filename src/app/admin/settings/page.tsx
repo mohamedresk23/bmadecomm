@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { requireStaffPage } from "../../../modules/identity/infrastructure/staff-server";
 import { StoreProfileForm } from "./profile-form";
+import { ShippingSettingsManager } from "./shipping-manager";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminSettingsPage() {
+interface AdminSettingsPageProps {
+  searchParams?: Promise<{ tab?: string }>;
+}
+
+export default async function AdminSettingsPage({
+  searchParams,
+}: AdminSettingsPageProps) {
   const context = await requireStaffPage();
 
   if (!context.roles.includes("owner")) {
@@ -24,11 +31,38 @@ export default async function AdminSettingsPage() {
     );
   }
 
+  const resolvedParams = searchParams ? await searchParams : undefined;
+  const currentTab = resolvedParams?.tab === "shipping" ? "shipping" : "profile";
+
   const tabs = [
-    { id: "profile", label: "هوية وملف المتجر", active: true },
-    { id: "shipping", label: "مناطق وطرق الشحن", active: false, badge: "قريبًا" },
-    { id: "payments", label: "طرق الدفع", active: false, badge: "قريبًا" },
-    { id: "policies", label: "السياسات المالية والتشغيلية", active: false, badge: "قريبًا" },
+    {
+      id: "profile",
+      label: "هوية وملف المتجر",
+      href: "/admin/settings?tab=profile",
+      active: currentTab === "profile",
+      enabled: true,
+    },
+    {
+      id: "shipping",
+      label: "مناطق وطرق الشحن",
+      href: "/admin/settings?tab=shipping",
+      active: currentTab === "shipping",
+      enabled: true,
+    },
+    {
+      id: "payments",
+      label: "طرق الدفع",
+      active: false,
+      enabled: false,
+      badge: "قريبًا",
+    },
+    {
+      id: "policies",
+      label: "السياسات المالية والتشغيلية",
+      active: false,
+      enabled: false,
+      badge: "قريبًا",
+    },
   ];
 
   return (
@@ -39,7 +73,9 @@ export default async function AdminSettingsPage() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">إعدادات المتجر التشغيلية</h1>
             <p className="text-sm text-gray-500 mt-1">
-              إدارة الهوية التجارية، قنوات التواصل، المنطقة الزمنية والعملة الأساسية
+              {currentTab === "shipping"
+                ? "إدارة مناطق التغطية الجغرافية في مصر وطرق وتكاليف الشحن والتوصيل"
+                : "إدارة الهوية التجارية، قنوات التواصل، المنطقة الزمنية والعملة الأساسية"}
             </p>
           </div>
           <Link
@@ -53,31 +89,41 @@ export default async function AdminSettingsPage() {
         {/* Settings Navigation Tabs */}
         <div className="border-b border-gray-200">
           <nav className="-mb-px flex space-x-reverse space-x-8" aria-label="أقسام الإعدادات">
-            {tabs.map((tab) => (
-              <span
-                key={tab.id}
-                className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm ${
-                  tab.active
-                    ? "border-blue-500 text-blue-600 font-semibold"
-                    : "border-transparent text-gray-400 cursor-not-allowed"
-                }`}
-                aria-current={tab.active ? "page" : undefined}
-              >
-                {tab.label}
-                {tab.badge && (
-                  <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-normal">
-                    {tab.badge}
-                  </span>
-                )}
-              </span>
-            ))}
+            {tabs.map((tab) =>
+              tab.enabled ? (
+                <Link
+                  key={tab.id}
+                  href={tab.href!}
+                  className={`py-4 px-1 inline-flex items-center gap-2 border-b-2 font-medium text-sm transition-colors ${
+                    tab.active
+                      ? "border-blue-500 text-blue-600 font-semibold"
+                      : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  }`}
+                  aria-current={tab.active ? "page" : undefined}
+                >
+                  {tab.label}
+                </Link>
+              ) : (
+                <span
+                  key={tab.id}
+                  className="py-4 px-1 inline-flex items-center gap-2 border-b-2 border-transparent font-medium text-sm text-gray-400 cursor-not-allowed"
+                >
+                  {tab.label}
+                  {tab.badge && (
+                    <span className="text-[10px] bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-normal">
+                      {tab.badge}
+                    </span>
+                  )}
+                </span>
+              )
+            )}
           </nav>
         </div>
 
-        {/* Profile Form Card */}
-        <StoreProfileForm />
+        {/* Tab Content */}
+        {currentTab === "profile" && <StoreProfileForm />}
+        {currentTab === "shipping" && <ShippingSettingsManager />}
       </div>
     </main>
   );
 }
-

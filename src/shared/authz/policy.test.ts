@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import { requirePermission, requireOwnership, redactFields, PolicyContext } from './policy';
-import { ApiError } from '../api/errors';
 
 describe('policy evaluation', () => {
   describe('requirePermission', () => {

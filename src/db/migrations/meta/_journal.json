@@ -78,6 +78,13 @@
       "when": 1791370000000,
       "tag": "0010_store_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791375000000,
+      "tag": "0011_shipping_zones_and_methods",
+      "breakpoints": true
     }
   ]
 }

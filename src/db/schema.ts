@@ -187,3 +187,41 @@ export const storeSettings = pgTable(
   },
   (t) => [check("store_settings_single_row", sql`${t.id} = 'default'`)]
 );
+
+// E03-02: Shipping zones and methods
+export const shippingZones = pgTable(
+  "shipping_zones",
+  {
+    id: text("id").primaryKey(),
+    nameAr: text("name_ar").notNull(),
+    nameEn: text("name_en").notNull(),
+    countryCode: text("country_code").notNull().default("EG"),
+    governorates: jsonb("governorates").notNull().$type<string[]>(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  }
+);
+
+export const shippingMethods = pgTable(
+  "shipping_methods",
+  {
+    id: text("id").primaryKey(),
+    zoneId: text("zone_id")
+      .notNull()
+      .references(() => shippingZones.id, { onDelete: "cascade" }),
+    nameAr: text("name_ar").notNull(),
+    nameEn: text("name_en").notNull(),
+    costMinor: integer("cost_minor").notNull().default(0),
+    estimatedDaysMin: integer("estimated_days_min").notNull().default(1),
+    estimatedDaysMax: integer("estimated_days_max").notNull().default(3),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    check("shipping_cost_non_negative", sql`${t.costMinor} >= 0`),
+    check("shipping_days_valid", sql`${t.estimatedDaysMin} <= ${t.estimatedDaysMax}`),
+    index("shipping_methods_zone_idx").on(t.zoneId),
+  ]
+);
