@@ -27,6 +27,9 @@
 .DS_Store
 *.pem
 
+# Local trusted interpreter selection; contains an absolute machine-specific path.
+/.python-version
+
 # debug
 npm-debug.log*
 yarn-debug.log*

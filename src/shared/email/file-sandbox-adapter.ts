@@ -12,12 +12,19 @@ export class FileSandboxEmailAdapter implements EmailAdapter {
   readonly directory = path.resolve(process.cwd(), ".local", "sandbox-mail");
   async send(message: EmailMessage) {
     if (process.env.NODE_ENV === "production") throw new Error("Private sandbox delivery unavailable");
-    if (message.template !== "customer-verification" || typeof message.data.verificationUrl !== "string") throw new Error("Unsupported sandbox message");
-    const link = new URL(message.data.verificationUrl);
-    if (!["http:", "https:"].includes(link.protocol) || link.username || link.password || link.search || link.pathname !== "/verify-email" || !link.hash) throw new Error("Invalid sandbox link");
+    const verification = message.template === 'customer-verification';
+    const reset = message.template === 'staff-password-reset';
+    const security = message.template === 'staff-security-change';
+    if (!verification && !reset && !security) throw new Error('Unsupported sandbox message');
+    const rawLink = verification ? message.data.verificationUrl : reset ? message.data.resetUrl : null;
+    if (!security && typeof rawLink !== 'string') throw new Error('Unsupported sandbox message');
+    const link = typeof rawLink === 'string' ? new URL(rawLink) : null;
+    if (link && (!["http:", "https:"].includes(link.protocol) || link.username || link.password || link.search || link.pathname !== (verification ? '/verify-email' : '/admin/reset') || !link.hash)) throw new Error("Invalid sandbox link");
+    if (security && (typeof message.data.event !== 'string' || !/^staff\.[a-z.-]+$/.test(message.data.event))) throw new Error('Invalid security event');
     const id = createHash("sha256").update(message.idempotencyKey).digest("hex");
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'none'; base-uri 'none'; form-action 'none'"><title>Sandbox verification email</title></head><body><p>To: ${escapeHtml(message.to)}</p><p><a href="${escapeHtml(link.toString())}" rel="noreferrer">Verify your email</a></p></body></html>`;
+    const content = link ? `<a href="${escapeHtml(link.toString())}" rel="noreferrer">${verification ? 'Verify your email' : 'Reset staff password'}</a>` : `Staff security event: ${escapeHtml(String(message.data.event))}`;
+    const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'none'; base-uri 'none'; form-action 'none'"><title>Private sandbox email</title></head><body><p>To: ${escapeHtml(message.to)}</p><p>${content}</p></body></html>`;
     const temporary = path.join(this.directory, `${id}-${randomUUID()}.tmp`);
     try {
       await writeFile(temporary, html, { flag: "wx", mode: 0o600 });

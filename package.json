@@ -10,6 +10,9 @@
     "typecheck": "tsc --noEmit",
     "identity:setup": "tsx scripts/setup-identity.ts",
     "identity:worker": "tsx scripts/identity-worker.ts",
+    "staff:setup": "tsx scripts/setup-staff-access.ts",
+    "staff:provision-owner": "tsx scripts/provision-owner.ts",
+    "staff:verify:local": "tsx scripts/verify-local-staff-access.ts",
     "db:migrate:local": "tsx scripts/migrate-local.ts",
     "identity:verify:local": "tsx scripts/verify-local-registration.ts"
   },
@@ -19,6 +22,7 @@
     "dotenv": "^18.0.5",
     "drizzle-orm": "^0.45.3",
     "next": "16.3.8",
+    "otplib": "13.5.0",
     "postgres": "^3.4.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
