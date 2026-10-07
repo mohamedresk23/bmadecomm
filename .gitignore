@@ -13,6 +13,9 @@
 # testing
 /coverage
 
+# Private local database binaries/data, sandbox emails and verification artifacts
+/.local/
+
 # next.js
 /.next/
 /out/
@@ -23,6 +26,9 @@
 # misc
 .DS_Store
 *.pem
+
+# Local trusted interpreter selection; contains an absolute machine-specific path.
+/.python-version
 
 # debug
 npm-debug.log*

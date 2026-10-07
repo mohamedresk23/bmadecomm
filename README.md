@@ -14,7 +14,9 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://127.0.0.1:3000/register](http://127.0.0.1:3000/register) to register a development customer. Use this same origin for verification links and form requests.
+
+Local PostgreSQL, private Sandbox email, migrations, and complete registration/activation checks are documented in [local-postgresql-verification.md](docs/local-postgresql-verification.md). Credentials belong in ignored `.env.local`; private database files and Sandbox messages belong in ignored `.local/`.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

@@ -1,0 +1,2 @@
+# Keep BMad's script environments within this workspace's writable local folder.
+cache-dir = ".local/uv-cache"

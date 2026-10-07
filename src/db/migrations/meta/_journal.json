@@ -40,8 +40,50 @@
     {
       "idx": 5,
       "version": "7",
-      "when": 1791324358303,
-      "tag": "0005_sessions_proof_idempotency",
+      "when": 1791279416712,
+      "tag": "0005_customer_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1791285645190,
+      "tag": "0006_dazzling_warbound",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1791358158232,
+      "tag": "0007_staff_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791362336892,
+      "tag": "0008_staff_authentication",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791364293367,
+      "tag": "0009_staff_identity_revocation",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791370000000,
+      "tag": "0010_store_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791375000000,
+      "tag": "0011_shipping_zones_and_methods",
       "breakpoints": true
     }
   ]

@@ -1,5 +1,5 @@
+import { pgTable, text, timestamp, jsonb, integer, boolean, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
 // (see migration 0002_audit_append_only).
@@ -81,42 +81,147 @@ export const media = pgTable("media", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });
 
-export const operationKeys = pgTable("operation_keys", {
+// E01-01: Customer registration
+export const users = pgTable("users", {
   id: text("id").primaryKey(),
-  actor: text("actor").notNull(),
-  operation: text("operation").notNull(),
-  key: text("key").notNull(),
-  payloadHash: text("payload_hash").notNull(),
-  result: jsonb("result"),
-  completedAt: timestamp("completed_at", { withTimezone: true }),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(), // Normalized email
+  phone: text("phone").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  role: text("role").notNull().default("customer"),
+  verifiedAt: timestamp("verified_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, t => [uniqueIndex("operation_keys_scope_uq").on(t.actor, t.operation, t.key),
-  check("operation_keys_hash_check", sql`${t.payloadHash} ~ '^[0-9a-f]{64}$'`),
-  check("operation_keys_completion_check", sql`${t.completedAt} IS NOT NULL OR ${t.result} IS NULL`)]);
-
-export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey(),
-  tokenHash: text("token_hash").notNull().unique(),
-  scope: text("scope").$type<"admin" | "customer">().notNull(),
-  subject: text("subject").notNull(),
-  idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
-  absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }).notNull(),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, t => [index("sessions_subject_idx").on(t.subject),
-  check("sessions_scope_check", sql`${t.scope} IN ('admin', 'customer')`),
-  check("sessions_hash_check", sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`),
-  check("sessions_expiry_check", sql`${t.createdAt} < ${t.idleExpiresAt} AND ${t.idleExpiresAt} <= ${t.absoluteExpiresAt}`)]);
+}, t => [check("users_email_normalized", sql`${t.email} = lower(btrim(${t.email}))`)]);
 
 export const proofTokens = pgTable("proof_tokens", {
   id: text("id").primaryKey(),
   tokenHash: text("token_hash").notNull().unique(),
-  purpose: text("purpose").$type<"password_reset" | "email_verification">().notNull(),
-  subject: text("subject").notNull(),
+  userId: text("user_id").notNull().references(() => users.id),
+  purpose: text("purpose").notNull(), // e.g. 'verification', 'password_reset'
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-}, t => [index("proof_tokens_subject_purpose_idx").on(t.subject, t.purpose),
-  check("proof_tokens_purpose_check", sql`${t.purpose} IN ('password_reset', 'email_verification')`),
-  check("proof_tokens_hash_check", sql`${t.tokenHash} ~ '^[0-9a-f]{64}$'`),
-  check("proof_tokens_expiry_check", sql`${t.expiresAt} > ${t.createdAt}`)]);
+});
+
+export const registrationRateBuckets = pgTable("registration_rate_buckets", {
+  key: text("key").primaryKey(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull(),
+}, t => [check("registration_rate_attempts_positive", sql`${t.attempts} > 0`)]);
+
+// Staff identities are deliberately provisioned separately from customers.
+export const roles = pgTable("roles", {
+  key: text("key").primaryKey(),
+});
+
+export const permissions = pgTable("permissions", {
+  key: text("key").primaryKey(),
+});
+
+export const staffAccounts = pgTable("staff_accounts", {
+  userId: text("user_id").primaryKey().references(() => users.id),
+  enabled: boolean("enabled").notNull().default(true),
+  mfaSeed: text("mfa_seed"),
+  mfaEnrolledAt: timestamp("mfa_enrolled_at", { withTimezone: true }),
+  lastTotpStep: integer("last_totp_step"),
+});
+
+export const userRoles = pgTable("user_roles", {
+  userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  roleKey: text("role_key").notNull().references(() => roles.key),
+}, t => [primaryKey({ columns: [t.userId, t.roleKey] }), index("user_roles_role_idx").on(t.roleKey)]);
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  context: text("context").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  authenticatedAt: timestamp("authenticated_at", { withTimezone: true }),
+}, t => [index("sessions_user_idx").on(t.userId), check("sessions_context", sql`${t.context} in ('staff', 'customer')`)]);
+
+export const staffAuthProofs = pgTable("staff_auth_proofs", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  tokenHash: text("token_hash").notNull().unique(), purpose: text("purpose").notNull(),
+  csrfHash: text("csrf_hash").notNull(), seed: text("seed"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }), failures: integer("failures").notNull().default(0),
+});
+export const staffRecoveryCodes = pgTable("staff_recovery_codes", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  codeHash: text("code_hash").notNull().unique(), consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+export const staffAuthBuckets = pgTable("staff_auth_buckets", {
+  key: text("key").primaryKey(), windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+});
+export const staffBootstrap = pgTable("staff_bootstrap", {
+  key: text("key").primaryKey(), userId: text("user_id").references(() => staffAccounts.userId),
+});
+
+// E03-01: Store operational settings
+export const storeSettings = pgTable(
+  "store_settings",
+  {
+    id: text("id").primaryKey(),
+    storeName: text("store_name").notNull(),
+    legalName: text("legal_name"),
+    supportEmail: text("support_email").notNull(),
+    supportPhone: text("support_phone").notNull(),
+    address: text("address"),
+    logoMediaId: text("logo_media_id").references(() => media.id, { onDelete: "set null" }),
+    defaultLanguage: text("default_language").notNull().default("ar-EG"),
+    currency: text("currency").notNull().default("EGP"),
+    currencySymbol: text("currency_symbol").notNull().default("ج.م"),
+    currencyExponent: integer("currency_exponent").notNull().default(2),
+    timezone: text("timezone").notNull().default("Africa/Cairo"),
+    dateFormat: text("date_format").notNull().default("YYYY-MM-DD"),
+    orderPrefix: text("order_prefix").notNull().default("ORD-"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [check("store_settings_single_row", sql`${t.id} = 'default'`)]
+);
+
+// E03-02: Shipping zones and methods
+export const shippingZones = pgTable(
+  "shipping_zones",
+  {
+    id: text("id").primaryKey(),
+    nameAr: text("name_ar").notNull(),
+    nameEn: text("name_en").notNull(),
+    countryCode: text("country_code").notNull().default("EG"),
+    governorates: jsonb("governorates").notNull().$type<string[]>(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  }
+);
+
+export const shippingMethods = pgTable(
+  "shipping_methods",
+  {
+    id: text("id").primaryKey(),
+    zoneId: text("zone_id")
+      .notNull()
+      .references(() => shippingZones.id, { onDelete: "cascade" }),
+    nameAr: text("name_ar").notNull(),
+    nameEn: text("name_en").notNull(),
+    costMinor: integer("cost_minor").notNull().default(0),
+    estimatedDaysMin: integer("estimated_days_min").notNull().default(1),
+    estimatedDaysMax: integer("estimated_days_max").notNull().default(3),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    check("shipping_cost_non_negative", sql`${t.costMinor} >= 0`),
+    check("shipping_days_valid", sql`${t.estimatedDaysMin} <= ${t.estimatedDaysMax}`),
+    index("shipping_methods_zone_idx").on(t.zoneId),
+  ]
+);

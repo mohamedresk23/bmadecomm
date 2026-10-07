@@ -1,5 +1,5 @@
 {
-  "id": "2753ce59-1cc5-4132-986c-edb55d4654e3",
+  "id": "566ae184-2041-41b9-8499-b584e1f5d1f7",
   "prevId": "8a661fd9-c230-4284-83ad-0ebd07312f2e",
   "version": "7",
   "dialect": "postgresql",
@@ -312,105 +312,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.operation_keys": {
-      "name": "operation_keys",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "actor": {
-          "name": "actor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "operation": {
-          "name": "operation",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "key": {
-          "name": "key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "payload_hash": {
-          "name": "payload_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "result": {
-          "name": "result",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "completed_at": {
-          "name": "completed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "operation_keys_scope_uq": {
-          "name": "operation_keys_scope_uq",
-          "columns": [
-            {
-              "expression": "actor",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "operation",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "key",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "operation_keys_hash_check": {
-          "name": "operation_keys_hash_check",
-          "value": "\"operation_keys\".\"payload_hash\" ~ '^[0-9a-f]{64}$'"
-        },
-        "operation_keys_completion_check": {
-          "name": "operation_keys_completion_check",
-          "value": "\"operation_keys\".\"completed_at\" IS NOT NULL OR \"operation_keys\".\"result\" IS NULL"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.outbox": {
       "name": "outbox",
       "schema": "",
@@ -548,14 +449,14 @@
           "primaryKey": false,
           "notNull": true
         },
-        "purpose": {
-          "name": "purpose",
+        "user_id": {
+          "name": "user_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "subject": {
-          "name": "subject",
+        "purpose": {
+          "name": "purpose",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -580,30 +481,22 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "proof_tokens_subject_purpose_idx": {
-          "name": "proof_tokens_subject_purpose_idx",
-          "columns": [
-            {
-              "expression": "subject",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "purpose",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
+      "indexes": {},
+      "foreignKeys": {
+        "proof_tokens_user_id_users_id_fk": {
+          "name": "proof_tokens_user_id_users_id_fk",
+          "tableFrom": "proof_tokens",
+          "tableTo": "users",
+          "columnsFrom": [
+            "user_id"
           ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
         }
       },
-      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
         "proof_tokens_token_hash_unique": {
@@ -615,24 +508,11 @@
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "proof_tokens_purpose_check": {
-          "name": "proof_tokens_purpose_check",
-          "value": "\"proof_tokens\".\"purpose\" IN ('password_reset', 'email_verification')"
-        },
-        "proof_tokens_hash_check": {
-          "name": "proof_tokens_hash_check",
-          "value": "\"proof_tokens\".\"token_hash\" ~ '^[0-9a-f]{64}$'"
-        },
-        "proof_tokens_expiry_check": {
-          "name": "proof_tokens_expiry_check",
-          "value": "\"proof_tokens\".\"expires_at\" > \"proof_tokens\".\"created_at\""
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.sessions": {
-      "name": "sessions",
+    "public.users": {
+      "name": "users",
       "schema": "",
       "columns": {
         "id": {
@@ -641,38 +521,39 @@
           "primaryKey": true,
           "notNull": true
         },
-        "token_hash": {
-          "name": "token_hash",
+        "name": {
+          "name": "name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "scope": {
-          "name": "scope",
+        "email": {
+          "name": "email",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "subject": {
-          "name": "subject",
+        "phone": {
+          "name": "phone",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "idle_expires_at": {
-          "name": "idle_expires_at",
-          "type": "timestamp with time zone",
+        "password_hash": {
+          "name": "password_hash",
+          "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "absolute_expires_at": {
-          "name": "absolute_expires_at",
-          "type": "timestamp with time zone",
+        "role": {
+          "name": "role",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'customer'"
         },
-        "revoked_at": {
-          "name": "revoked_at",
+        "verified_at": {
+          "name": "verified_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
@@ -685,49 +566,20 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "sessions_subject_idx": {
-          "name": "sessions_subject_idx",
-          "columns": [
-            {
-              "expression": "subject",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "sessions_token_hash_unique": {
-          "name": "sessions_token_hash_unique",
+        "users_email_unique": {
+          "name": "users_email_unique",
           "nullsNotDistinct": false,
           "columns": [
-            "token_hash"
+            "email"
           ]
         }
       },
       "policies": {},
-      "checkConstraints": {
-        "sessions_scope_check": {
-          "name": "sessions_scope_check",
-          "value": "\"sessions\".\"scope\" IN ('admin', 'customer')"
-        },
-        "sessions_hash_check": {
-          "name": "sessions_hash_check",
-          "value": "\"sessions\".\"token_hash\" ~ '^[0-9a-f]{64}$'"
-        },
-        "sessions_expiry_check": {
-          "name": "sessions_expiry_check",
-          "value": "\"sessions\".\"created_at\" < \"sessions\".\"idle_expires_at\" AND \"sessions\".\"idle_expires_at\" <= \"sessions\".\"absolute_expires_at\""
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     }
   },

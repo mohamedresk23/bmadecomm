@@ -5,7 +5,7 @@ import { useState } from "react";
 export function Upload() {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ id: string; url: string } | null>(null);
+  const [result, setResult] = useState<{ id: string; url?: string } | null>(null);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -35,6 +35,21 @@ export function Upload() {
 
       const data = await res.json();
       setResult(data);
+
+      // Now publish it so we can preview it
+      const publishRes = await fetch("/api/media/publish", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-mock-user": JSON.stringify({ id: "user1", roles: [], permissions: ["media:upload"] }),
+        },
+        body: JSON.stringify({ id: data.id }),
+      });
+
+      if (publishRes.ok) {
+        const publishData = await publishRes.json();
+        setResult(publishData);
+      }
     } catch (err: unknown) {
       if (err instanceof Error) {
         setError(err.message);
@@ -55,13 +70,14 @@ export function Upload() {
         onChange={handleUpload}
         disabled={uploading}
         className="mb-4"
+        data-testid="upload-input"
       />
-      {uploading && <p className="text-gray-500">Uploading...</p>}
-      {error && <p className="text-red-500">{error}</p>}
+      {uploading && <p className="text-gray-500" data-testid="uploading-state">Uploading...</p>}
+      {error && <p className="text-red-500" data-testid="error-state">{error}</p>}
       {result && (
-        <div className="mt-4">
+        <div className="mt-4" data-testid="success-state">
           <p className="text-green-600 mb-2">Upload successful!</p>
-          <img src={result.url} alt="Uploaded media" className="max-w-xs border rounded" />
+          {result.url && <img src={result.url} alt="Uploaded media" className="max-w-xs border rounded" data-testid="preview-image" />}
           <p className="text-xs text-gray-400 mt-2">ID: {result.id}</p>
         </div>
       )}

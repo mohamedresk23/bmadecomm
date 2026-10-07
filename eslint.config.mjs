@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Project specific ignores:
     ".agent/**",
     ".agents/**",
+    ".local/**",
     ".claude/**",
     "_bmad/**",
     "_bmad-output/**"

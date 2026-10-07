@@ -10,6 +10,7 @@ import { setupTestDb } from "../../../../test-utils/db";
 
 describe("Media Upload API", () => {
   const uploadDir = path.join(process.cwd(), "public", "uploads");
+  const privateDir = path.join(process.cwd(), "storage", "private");
 
   beforeAll(async () => {
     await setupTestDb();
@@ -18,11 +19,13 @@ describe("Media Upload API", () => {
   beforeEach(async () => {
     // Clean up upload dir
     await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(privateDir, { recursive: true, force: true }).catch(() => {});
     await db.delete(media); // clean db
   });
 
   afterEach(async () => {
     await fs.rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+    await fs.rm(privateDir, { recursive: true, force: true }).catch(() => {});
     await db.delete(media);
   });
 
@@ -90,16 +93,17 @@ describe("Media Upload API", () => {
 
     const data = await res.json();
     expect(data.id).toBeDefined();
-    expect(data.url).toMatch(/^\/uploads\/.+\.png$/);
+    expect(data.status).toBe("pending");
 
     // Verify DB
     const dbRecord = await db.select().from(media).where(eq(media.id, data.id));
     expect(dbRecord.length).toBe(1);
     expect(dbRecord[0].mimeType).toBe("image/png");
+    expect(dbRecord[0].status).toBe("pending");
 
-    // Verify file exists
-    const filename = path.basename(data.url);
-    const filePath = path.join(uploadDir, filename);
+    // Verify file exists in private storage
+    const filename = `${data.id}.png`;
+    const filePath = path.join(process.cwd(), "storage", "private", filename);
     const fileStat = await fs.stat(filePath);
     expect(fileStat.size).toBeGreaterThan(0);
   });
