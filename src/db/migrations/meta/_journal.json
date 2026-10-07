@@ -71,6 +71,13 @@
       "when": 1791364293367,
       "tag": "0009_staff_identity_revocation",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791370000000,
+      "tag": "0010_store_settings",
+      "breakpoints": true
     }
   ]
 }

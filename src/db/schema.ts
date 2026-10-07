@@ -162,3 +162,28 @@ export const staffAuthBuckets = pgTable("staff_auth_buckets", {
 export const staffBootstrap = pgTable("staff_bootstrap", {
   key: text("key").primaryKey(), userId: text("user_id").references(() => staffAccounts.userId),
 });
+
+// E03-01: Store operational settings
+export const storeSettings = pgTable(
+  "store_settings",
+  {
+    id: text("id").primaryKey(),
+    storeName: text("store_name").notNull(),
+    legalName: text("legal_name"),
+    supportEmail: text("support_email").notNull(),
+    supportPhone: text("support_phone").notNull(),
+    address: text("address"),
+    logoMediaId: text("logo_media_id").references(() => media.id, { onDelete: "set null" }),
+    defaultLanguage: text("default_language").notNull().default("ar-EG"),
+    currency: text("currency").notNull().default("EGP"),
+    currencySymbol: text("currency_symbol").notNull().default("ج.م"),
+    currencyExponent: integer("currency_exponent").notNull().default(2),
+    timezone: text("timezone").notNull().default("Africa/Cairo"),
+    dateFormat: text("date_format").notNull().default("YYYY-MM-DD"),
+    orderPrefix: text("order_prefix").notNull().default("ORD-"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [check("store_settings_single_row", sql`${t.id} = 'default'`)]
+);
