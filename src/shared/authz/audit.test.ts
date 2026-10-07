@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { db } from '../../db';
 import { withIsolatedTx, setupTestDb } from '../../test-utils/db';
 import { writeAudit } from './audit';
 import { auditEvents, migrationsTest } from '../../db/schema';
