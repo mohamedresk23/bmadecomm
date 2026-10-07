@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, boolean, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
@@ -108,3 +108,57 @@ export const registrationRateBuckets = pgTable("registration_rate_buckets", {
   windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
   attempts: integer("attempts").notNull(),
 }, t => [check("registration_rate_attempts_positive", sql`${t.attempts} > 0`)]);
+
+// Staff identities are deliberately provisioned separately from customers.
+export const roles = pgTable("roles", {
+  key: text("key").primaryKey(),
+});
+
+export const permissions = pgTable("permissions", {
+  key: text("key").primaryKey(),
+});
+
+export const staffAccounts = pgTable("staff_accounts", {
+  userId: text("user_id").primaryKey().references(() => users.id),
+  enabled: boolean("enabled").notNull().default(true),
+  mfaSeed: text("mfa_seed"),
+  mfaEnrolledAt: timestamp("mfa_enrolled_at", { withTimezone: true }),
+  lastTotpStep: integer("last_totp_step"),
+});
+
+export const userRoles = pgTable("user_roles", {
+  userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  roleKey: text("role_key").notNull().references(() => roles.key),
+}, t => [primaryKey({ columns: [t.userId, t.roleKey] }), index("user_roles_role_idx").on(t.roleKey)]);
+
+export const sessions = pgTable("sessions", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id),
+  context: text("context").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(),
+  idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  authenticatedAt: timestamp("authenticated_at", { withTimezone: true }),
+}, t => [index("sessions_user_idx").on(t.userId), check("sessions_context", sql`${t.context} in ('staff', 'customer')`)]);
+
+export const staffAuthProofs = pgTable("staff_auth_proofs", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  tokenHash: text("token_hash").notNull().unique(), purpose: text("purpose").notNull(),
+  csrfHash: text("csrf_hash").notNull(), seed: text("seed"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  consumedAt: timestamp("consumed_at", { withTimezone: true }), failures: integer("failures").notNull().default(0),
+});
+export const staffRecoveryCodes = pgTable("staff_recovery_codes", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => staffAccounts.userId),
+  codeHash: text("code_hash").notNull().unique(), consumedAt: timestamp("consumed_at", { withTimezone: true }),
+});
+export const staffAuthBuckets = pgTable("staff_auth_buckets", {
+  key: text("key").primaryKey(), windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull().default(0),
+});
+export const staffBootstrap = pgTable("staff_bootstrap", {
+  key: text("key").primaryKey(), userId: text("user_id").references(() => staffAccounts.userId),
+});
