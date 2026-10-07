@@ -88,18 +88,130 @@ export function StaffAccessForm({ initialMode }: { initialMode: Mode }) {
     } catch (error) { if (mounted.current) setMessage(error instanceof Error ? error.message : 'Request could not be completed.'); }
     finally { form.reset(); submitting.current = false; if (mounted.current) setBusy(false); }
   }
-  const input = (name: string, label: string, type = 'text', required = true, autoComplete = 'off') => <p><label htmlFor={name}>{label}</label><br /><input id={name} name={name} type={type} required={required} autoComplete={autoComplete} maxLength={name.includes('Password') || name === 'password' ? 512 : 254} /></p>;
-  if (codes) return <section aria-label="Recovery codes"><p>These ten codes are shown once. Keep an offline emergency copy separately from your authenticator.</p><ul>{codes.map(code => <li key={code}><code>{code}</code></li>)}</ul><p role="status">{message}</p><button onClick={() => { setCodes(null); setSeed(''); setProof(null); navigate('/admin/login'); }}>I saved the codes — sign in</button></section>;
-  return <section><form onSubmit={submit}>
-    {mode === 'login' && !proof && <>{input('email', 'Staff email', 'email', true, 'username')}{input('password', 'Password', 'password', true, 'current-password')}</>}
-    {mode === 'login' && proof && input('otp', 'Authenticator code', 'text', true, 'one-time-code')}
-    {mode === 'enroll' && !proof && <p>A private setup or recovery package is required.</p>}
-    {mode === 'enroll' && seed && <><p>Add this setup key to your authenticator. It is only available during this restricted enrollment.</p><p><code>{seed}</code></p>{input('password', 'Password (15–128 characters)', 'password', true, 'new-password')}{input('otp', 'Code from the new authenticator', 'text', true, 'one-time-code')}</>}
-    {mode === 'recover' && <>{input('email', 'Staff email', 'email', true, 'username')}{input('password', 'Current password', 'password', true, 'current-password')}{input('code', 'Unused offline recovery code')}</>}
-    {mode === 'reset' && !proof && input('email', 'Staff email', 'email', true, 'username')}
-    {mode === 'reset' && proof && <>{input('password', 'New password (15–128 characters)', 'password', true, 'new-password')}{input('otp', 'Current authenticator code (or use a recovery code)', 'text', false, 'one-time-code')}{input('code', 'Unused offline recovery code (or use authenticator)', 'text', false)}</>}
-    {mode === 'security' && <><p><label htmlFor="operation">Security action</label><br /><select id="operation" name="operation"><option value="reauth">Verify password and MFA again</option><option value="password">Change password</option><option value="factor">Replace authenticator</option><option value="codes">Renew recovery codes</option><option value="logout">Sign out</option></select></p>{input('password', 'Current password', 'password', false, 'current-password')}{input('otp', 'New authenticator code', 'text', false, 'one-time-code')}{input('newPassword', 'New password (only for password change)', 'password', false, 'new-password')}<p>Factor, password and code changes revoke your sessions and require a fresh login.</p></>}
-    <button type="submit" disabled={busy || (!csrf && !proof) || (mode === 'enroll' && !proof)}>{busy ? 'Please wait…' : mode === 'enroll' && !seed ? 'Begin authenticator enrollment' : 'Continue'}</button>
-    <p role="status" aria-live="polite">{message}</p>
-  </form>{mode !== 'security' && <nav aria-label="Staff access"><Link href="/admin/login">Sign in</Link>{' · '}<Link href="/admin/recover">Lost authenticator</Link>{' · '}<Link href="/admin/reset">Forgot password</Link></nav>}</section>;
+  const input = (name: string, label: string, type = 'text', required = true, autoComplete = 'off') => (
+    <div className="space-y-1.5 text-left">
+      <label htmlFor={name} className="block text-sm font-semibold text-slate-800">
+        {label}
+      </label>
+      <input
+        id={name}
+        name={name}
+        type={type}
+        required={required}
+        autoComplete={autoComplete}
+        maxLength={name.includes('Password') || name === 'password' ? 512 : 254}
+        className="w-full px-4 py-2.5 rounded-xl border border-slate-400 text-sm text-slate-900 bg-white transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-700 focus:border-blue-700"
+      />
+    </div>
+  );
+
+  if (codes) return (
+    <section aria-label="Recovery codes" className="bg-white rounded-2xl border border-slate-300 p-6 sm:p-8 shadow-xs max-w-md mx-auto space-y-5 text-left">
+      <div className="p-3 bg-amber-50 text-amber-900 border border-amber-300 rounded-xl text-xs font-semibold">
+        These ten codes are shown once. Keep an offline emergency copy separately from your authenticator.
+      </div>
+      <ul className="grid grid-cols-2 gap-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
+        {codes.map(code => (
+          <li key={code} className="text-center">
+            <code className="text-xs font-mono font-bold bg-white px-2 py-1.5 rounded-lg border border-slate-300 text-slate-900 block select-all">
+              {code}
+            </code>
+          </li>
+        ))}
+      </ul>
+      {message && <p role="status" className="text-xs font-semibold text-slate-600">{message}</p>}
+      <button
+        onClick={() => { setCodes(null); setSeed(''); setProof(null); navigate('/admin/login'); }}
+        className="w-full px-6 py-2.5 rounded-xl bg-blue-700 hover:bg-blue-800 text-white text-sm font-bold shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-blue-700"
+      >
+        I saved the codes — sign in
+      </button>
+    </section>
+  );
+
+  return (
+    <section className="bg-white rounded-2xl border border-slate-300 p-6 sm:p-8 shadow-xs max-w-md mx-auto space-y-6 text-left">
+      <form onSubmit={submit} className="space-y-4">
+        {mode === 'login' && !proof && (
+          <>
+            {input('email', 'Staff email', 'email', true, 'username')}
+            {input('password', 'Password', 'password', true, 'current-password')}
+          </>
+        )}
+        {mode === 'login' && proof && input('otp', 'Authenticator code', 'text', true, 'one-time-code')}
+        {mode === 'enroll' && !proof && (
+          <p className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            A private setup or recovery package is required.
+          </p>
+        )}
+        {mode === 'enroll' && seed && (
+          <div className="space-y-4">
+            <div className="p-3 bg-blue-50 text-blue-900 border border-blue-200 rounded-xl text-xs space-y-2">
+              <p className="font-semibold">Add this setup key to your authenticator. It is only available during this restricted enrollment.</p>
+              <p><code className="font-mono font-bold bg-white px-2 py-1 rounded border border-blue-300 text-blue-800 inline-block">{seed}</code></p>
+            </div>
+            {input('password', 'Password (15–128 characters)', 'password', true, 'new-password')}
+            {input('otp', 'Code from the new authenticator', 'text', true, 'one-time-code')}
+          </div>
+        )}
+        {mode === 'recover' && (
+          <>
+            {input('email', 'Staff email', 'email', true, 'username')}
+            {input('password', 'Current password', 'password', true, 'current-password')}
+            {input('code', 'Unused offline recovery code')}
+          </>
+        )}
+        {mode === 'reset' && !proof && input('email', 'Staff email', 'email', true, 'username')}
+        {mode === 'reset' && proof && (
+          <>
+            {input('password', 'New password (15–128 characters)', 'password', true, 'new-password')}
+            {input('otp', 'Current authenticator code (or use a recovery code)', 'text', false, 'one-time-code')}
+            {input('code', 'Unused offline recovery code (or use authenticator)', 'text', false)}
+          </>
+        )}
+        {mode === 'security' && (
+          <>
+            <div className="space-y-1.5">
+              <label htmlFor="operation" className="block text-sm font-semibold text-slate-800">Security action</label>
+              <select id="operation" name="operation" className="w-full px-4 py-2.5 rounded-xl border border-slate-400 text-sm text-slate-900 bg-white transition-colors focus-visible:ring-2 focus-visible:ring-blue-700">
+                <option value="reauth">Verify password and MFA again</option>
+                <option value="password">Change password</option>
+                <option value="factor">Replace authenticator</option>
+                <option value="codes">Renew recovery codes</option>
+                <option value="logout">Sign out</option>
+              </select>
+            </div>
+            {input('password', 'Current password', 'password', false, 'current-password')}
+            {input('otp', 'New authenticator code', 'text', false, 'one-time-code')}
+            {input('newPassword', 'New password (only for password change)', 'password', false, 'new-password')}
+            <p className="text-xs text-slate-500">Factor, password and code changes revoke your sessions and require a fresh login.</p>
+          </>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy || (!csrf && !proof) || (mode === 'enroll' && !proof)}
+          className="w-full inline-flex justify-center items-center px-6 py-2.5 rounded-xl border border-transparent bg-blue-700 hover:bg-blue-800 text-sm font-bold text-white shadow-sm transition-colors focus:outline-hidden focus-visible:ring-2 focus-visible:ring-blue-700 focus-visible:ring-offset-2 disabled:opacity-50 cursor-pointer"
+        >
+          {busy ? 'Please wait…' : mode === 'enroll' && !seed ? 'Begin authenticator enrollment' : 'Continue'}
+        </button>
+
+        {message && (
+          <p role="status" aria-live="polite" className="text-xs font-semibold p-3 rounded-xl bg-slate-100 text-slate-800 border border-slate-300">
+            {message}
+          </p>
+        )}
+      </form>
+
+      {mode !== 'security' && (
+        <nav aria-label="Staff access" className="pt-4 border-t border-slate-200 text-center text-xs font-semibold text-slate-600 space-x-3">
+          <Link href="/admin/login" className="hover:text-blue-700 hover:underline">Sign in</Link>
+          <span>·</span>
+          <Link href="/admin/recover" className="hover:text-blue-700 hover:underline">Lost authenticator</Link>
+          <span>·</span>
+          <Link href="/admin/reset" className="hover:text-blue-700 hover:underline">Forgot password</Link>
+        </nav>
+      )}
+    </section>
+  );
 }

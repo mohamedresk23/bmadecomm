@@ -369,24 +369,30 @@ export function ShippingSettingsManager() {
     setEditingZone({ ...editingZone, governorates: updated });
   }
 
+  const totalMethods = zones.reduce((acc, z) => acc + z.methods.length, 0);
+  const totalGovs = new Set(zones.flatMap((z) => z.governorates)).size;
+
   return (
-    <div className="space-y-6" dir="rtl">
+    <div className="space-y-6 text-slate-900" dir="rtl">
       {/* Toast Alert */}
       {toast && (
         <div
           role="status"
           aria-live="polite"
-          className={`p-4 rounded-md text-sm font-medium flex items-center justify-between ${
+          className={`p-4 rounded-xl text-sm font-semibold flex items-center justify-between shadow-xs ${
             toast.type === "success"
-              ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-              : "bg-red-50 text-red-800 border border-red-200"
+              ? "bg-emerald-50 text-emerald-800 border border-emerald-300"
+              : "bg-rose-50 text-rose-800 border border-rose-300"
           }`}
         >
-          <span>{toast.message}</span>
+          <div className="flex items-center gap-2">
+            <span>{toast.type === "success" ? "✓" : "⚠️"}</span>
+            <span>{toast.message}</span>
+          </div>
           <button
             type="button"
             onClick={() => setToast(null)}
-            className="text-gray-500 hover:text-gray-700 font-bold ml-2"
+            className="text-slate-500 hover:text-slate-800 font-bold p-1 rounded"
             aria-label="إغلاق التنبيه"
           >
             ✕
@@ -394,18 +400,56 @@ export function ShippingSettingsManager() {
         </div>
       )}
 
+      {/* Metrics Summary Cards (Shown when zones exist) */}
+      {!isLoading && zones.length > 0 && (
+        <section aria-label="ملخص إحصائيات الشحن" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-semibold text-slate-600">مناطق الشحن الجغرافية</span>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1"><bdi dir="rtl">{zones.length} مناطق</bdi></p>
+              <span className="text-xs text-emerald-800 font-bold mt-1 inline-block">مفعلة وتستقبل الطلبات</span>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-blue-50 text-blue-800 flex items-center justify-center text-xl font-bold border border-blue-200" aria-hidden="true">
+              🗺️
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-semibold text-slate-600">طرق التوصيل المتاحة</span>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1"><bdi dir="rtl">{totalMethods} خيارات</bdi></p>
+              <span className="text-xs text-slate-600 font-semibold mt-1 inline-block">عادي، سريع، فوري</span>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-amber-50 text-amber-800 flex items-center justify-center text-xl font-bold border border-amber-200" aria-hidden="true">
+              🚚
+            </div>
+          </div>
+
+          <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-xs flex items-center justify-between">
+            <div>
+              <span className="text-xs font-semibold text-slate-600">المحافظات المغطاة</span>
+              <p className="text-2xl font-extrabold text-slate-900 mt-1"><bdi dir="rtl">{totalGovs} محافظة</bdi></p>
+              <span className="text-xs text-blue-800 font-bold mt-1 inline-block">من أصل <bdi dir="rtl">27 محافظة</bdi></span>
+            </div>
+            <div className="w-11 h-11 rounded-xl bg-emerald-50 text-emerald-800 flex items-center justify-center text-xl font-bold border border-emerald-200" aria-hidden="true">
+              📍
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* Main Header Card */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-gray-900">مناطق وطرق الشحن والتوصيل</h2>
-          <p className="text-sm text-gray-500 mt-1">
+          <h2 className="text-base sm:text-lg font-bold text-slate-900">مناطق وطرق الشحن والتوصيل</h2>
+          <p className="text-xs sm:text-sm text-slate-600 mt-0.5">
             إدارة مناطق التغطية الجغرافية في جمهورية مصر العربية وتحديد تكاليف ومواعيد التوصيل لكل منطقة
           </p>
         </div>
         <button
           type="button"
           onClick={handleOpenAddZone}
-          className="inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+          className="inline-flex items-center justify-center px-5 py-2.5 rounded-xl shadow-sm text-sm font-bold text-white bg-blue-700 hover:bg-blue-800 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-blue-700 transition-colors"
           data-testid="add-zone-button"
         >
           + إضافة منطقة شحن جديدة
@@ -414,26 +458,28 @@ export function ShippingSettingsManager() {
 
       {/* Loading Skeleton */}
       {isLoading ? (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8 text-center text-gray-500">
-          <p className="animate-pulse">جاري تحميل مناطق وطرق الشحن...</p>
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-8 text-center text-slate-600">
+          <p className="animate-pulse font-medium">جاري تحميل مناطق وطرق الشحن...</p>
         </div>
       ) : zones.length === 0 ? (
         /* Empty State */
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
-          <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl font-bold">
+        <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-12 text-center space-y-4">
+          <div className="w-16 h-16 bg-blue-50 text-blue-800 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold border border-blue-200">
             🚚
           </div>
-          <h3 className="text-lg font-semibold text-gray-900 mb-2">لا توجد مناطق شحن مهيأة</h3>
-          <p className="text-sm text-gray-500 max-w-md mx-auto mb-6">
+          <h3 className="text-lg font-bold text-slate-900">لا توجد مناطق شحن مهيأة</h3>
+          <p className="text-sm text-slate-600 max-w-md mx-auto">
             لم تقم بتهيئة أي مناطق شحن حتى الآن. أضف أول منطقة شحن لتفعيل محرك أهلية التوصيل لعملائك.
           </p>
-          <button
-            type="button"
-            onClick={handleOpenAddZone}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700"
-          >
-            إضافة أول منطقة شحن
-          </button>
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={handleOpenAddZone}
+              className="px-5 py-2.5 bg-blue-700 text-white rounded-xl text-sm font-bold hover:bg-blue-800 shadow-sm transition-colors focus-visible:ring-2 focus-visible:ring-blue-700"
+            >
+              إضافة أول منطقة شحن
+            </button>
+          </div>
         </div>
       ) : (
         /* Zones List */
@@ -441,37 +487,38 @@ export function ShippingSettingsManager() {
           {zones.map((zone) => (
             <div
               key={zone.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden"
+              className="bg-white rounded-2xl shadow-xs border border-slate-300 overflow-hidden"
               data-testid={`zone-card-${zone.id}`}
             >
               {/* Zone Header */}
-              <div className="p-6 border-b border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gray-50/50">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-3">
-                    <h3 className="text-lg font-bold text-gray-900">{zone.name_ar}</h3>
-                    <span className="text-sm text-gray-500 font-mono">({zone.name_en})</span>
+              <div className="p-5 sm:p-6 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/80">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2.5">
+                    <span className={`w-2.5 h-2.5 rounded-full ${zone.is_active ? "bg-emerald-600" : "bg-slate-400"}`} aria-hidden="true"></span>
+                    <h3 className="text-base font-extrabold text-slate-900">{zone.name_ar}</h3>
+                    <span className="text-xs text-slate-600 font-mono font-medium"><bdi dir="ltr">({zone.name_en})</bdi></span>
                     <span
-                      className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
+                      className={`text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                         zone.is_active
-                          ? "bg-emerald-100 text-emerald-800"
-                          : "bg-gray-200 text-gray-700"
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                          : "bg-slate-100 text-slate-700 border-slate-300"
                       }`}
                     >
                       {zone.is_active ? "نشطة" : "معطلة"}
                     </span>
                   </div>
-                  <p className="text-xs text-gray-500">
-                    رمز الدولة: <span className="font-semibold">{zone.country_code}</span> | عدد
+                  <p className="text-xs text-slate-600">
+                    رمز الدولة: <span className="font-semibold text-slate-800 font-mono"><bdi dir="ltr">{zone.country_code}</bdi></span> | عدد
                     المحافظات المشمولة:{" "}
-                    <span className="font-semibold">{zone.governorates.length}</span>
+                    <span className="font-semibold text-slate-800"><bdi dir="rtl">{zone.governorates.length} محافظة</bdi></span>
                   </p>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 self-start md:self-auto">
                   <button
                     type="button"
                     onClick={() => handleOpenAddMethod(zone.id)}
-                    className="px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100"
+                    className="px-3.5 py-1.5 text-xs font-bold text-blue-800 bg-blue-50 border border-blue-300 rounded-xl hover:bg-blue-100 transition-colors focus-visible:ring-2 focus-visible:ring-blue-700"
                     data-testid={`add-method-button-${zone.id}`}
                   >
                     + إضافة طريقة شحن
@@ -479,7 +526,7 @@ export function ShippingSettingsManager() {
                   <button
                     type="button"
                     onClick={() => handleOpenEditZone(zone)}
-                    className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+                    className="px-3.5 py-1.5 text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded-xl hover:bg-slate-100 transition-colors focus-visible:ring-2 focus-visible:ring-blue-700"
                     data-testid={`edit-zone-button-${zone.id}`}
                   >
                     تعديل المنطقة
@@ -493,7 +540,7 @@ export function ShippingSettingsManager() {
                         title: `المنطقة "${zone.name_ar}" وجميع طرق التوصيل التابعة لها`,
                       })
                     }
-                    className="px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 border border-red-200 rounded-md hover:bg-red-100"
+                    className="px-3.5 py-1.5 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-300 rounded-xl hover:bg-rose-100 transition-colors focus-visible:ring-2 focus-visible:ring-rose-700"
                     data-testid={`delete-zone-button-${zone.id}`}
                   >
                     حذف
@@ -502,8 +549,8 @@ export function ShippingSettingsManager() {
               </div>
 
               {/* Governorates Badges */}
-              <div className="px-6 py-3 bg-white border-b border-gray-100">
-                <span className="text-xs font-medium text-gray-500 block mb-2">
+              <div className="px-5 sm:px-6 py-3.5 bg-white border-b border-slate-200">
+                <span className="text-xs font-semibold text-slate-700 block mb-2">
                   المحافظات التابعة لهذه المنطقة:
                 </span>
                 <div className="flex flex-wrap gap-1.5">
@@ -512,7 +559,7 @@ export function ShippingSettingsManager() {
                     return (
                       <span
                         key={govCode}
-                        className="inline-flex items-center px-2 py-0.5 rounded text-xs bg-gray-100 text-gray-700 border border-gray-200"
+                        className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs bg-slate-50 text-slate-800 border border-slate-300 font-semibold"
                       >
                         {found ? found.name_ar : govCode}
                       </span>
@@ -522,78 +569,82 @@ export function ShippingSettingsManager() {
               </div>
 
               {/* Methods Table */}
-              <div className="p-6">
-                <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-3">
+              <div className="p-5 sm:p-6">
+                <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-3">
                   طرق الشحن والأسعار ({zone.methods.length})
                 </h4>
                 {zone.methods.length === 0 ? (
-                  <p className="text-xs text-gray-400 py-4 text-center bg-gray-50 rounded-md">
+                  <p className="text-xs text-slate-500 py-4 text-center bg-slate-50 rounded-xl border border-slate-200">
                     لا توجد طرق شحن مضافة لهذه المنطقة حتى الآن. لن تتاح هذه المنطقة للعملاء في صفحة الدفع حتى تضيف طريقة شحن واحدة على الأقل.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
-                    <table className="min-w-full divide-y divide-gray-200 text-sm">
-                      <thead className="bg-gray-50 text-gray-500 text-xs text-right">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-50 text-slate-700 text-xs text-right font-bold">
                         <tr>
-                          <th className="px-4 py-2 font-medium">طريقة الشحن</th>
-                          <th className="px-4 py-2 font-medium">الاسم بالإنجليزية</th>
-                          <th className="px-4 py-2 font-medium">التكلفة</th>
-                          <th className="px-4 py-2 font-medium">المدة المتوقعة</th>
-                          <th className="px-4 py-2 font-medium">الحالة</th>
-                          <th className="px-4 py-2 font-medium text-left">إجراءات</th>
+                          <th className="px-4 py-3">طريقة الشحن</th>
+                          <th className="px-4 py-3">الاسم بالإنجليزية</th>
+                          <th className="px-4 py-3">التكلفة</th>
+                          <th className="px-4 py-3">المدة المتوقعة</th>
+                          <th className="px-4 py-3">الحالة</th>
+                          <th className="px-4 py-3 text-left">إجراءات</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-100 bg-white">
+                      <tbody className="divide-y divide-slate-100 bg-white">
                         {zone.methods.map((method) => (
-                          <tr key={method.id} data-testid={`method-row-${method.id}`}>
-                            <td className="px-4 py-2.5 font-medium text-gray-900">
+                          <tr key={method.id} data-testid={`method-row-${method.id}`} className="hover:bg-slate-50/70 transition-colors">
+                            <td className="px-4 py-3.5 font-bold text-slate-900">
                               {method.name_ar}
                             </td>
-                            <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">
-                              {method.name_en}
+                            <td className="px-4 py-3.5 text-slate-600 font-mono text-xs">
+                              <bdi dir="ltr">{method.name_en}</bdi>
                             </td>
-                            <td className="px-4 py-2.5 font-semibold text-gray-900">
-                              {method.cost_minor === 0 ? "مجاني" : method.cost_formatted}
+                            <td className="px-4 py-3.5 font-extrabold text-slate-900">
+                              <bdi dir="ltr" className="font-mono">{method.cost_minor === 0 ? "مجاني" : method.cost_formatted}</bdi>
                             </td>
-                            <td className="px-4 py-2.5 text-gray-600 text-xs">
-                              {method.estimated_days_min === method.estimated_days_max
-                                ? `${method.estimated_days_min} يوم`
-                                : `${method.estimated_days_min} - ${method.estimated_days_max} أيام`}
+                            <td className="px-4 py-3.5 text-slate-700 text-xs">
+                              <bdi dir="rtl">
+                                {method.estimated_days_min === method.estimated_days_max
+                                  ? `${method.estimated_days_min} يوم`
+                                  : `${method.estimated_days_min} - ${method.estimated_days_max} أيام`}
+                              </bdi>
                             </td>
-                            <td className="px-4 py-2.5">
+                            <td className="px-4 py-3.5">
                               <span
-                                className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${
+                                className={`inline-block text-xs px-2.5 py-0.5 rounded-full font-bold border ${
                                   method.is_active
-                                    ? "bg-emerald-50 text-emerald-700"
-                                    : "bg-gray-100 text-gray-500"
+                                    ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                                    : "bg-slate-100 text-slate-700 border-slate-300"
                                 }`}
                               >
                                 {method.is_active ? "مفعّلة" : "معطلة"}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-left space-x-reverse space-x-2">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditMethod(method)}
-                                className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                                data-testid={`edit-method-${method.id}`}
-                              >
-                                تعديل
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setDeleteConfirm({
-                                    type: "method",
-                                    id: method.id,
-                                    title: `طريقة الشحن "${method.name_ar}"`,
-                                  })
-                                }
-                                className="text-xs text-red-600 hover:text-red-800 font-medium ml-2"
-                                data-testid={`delete-method-${method.id}`}
-                              >
-                                حذف
-                              </button>
+                            <td className="px-4 py-3.5 text-left">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenEditMethod(method)}
+                                  className="text-xs text-blue-700 hover:text-blue-900 font-bold hover:bg-blue-50 px-2.5 py-1.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-blue-700"
+                                  data-testid={`edit-method-${method.id}`}
+                                >
+                                  تعديل
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setDeleteConfirm({
+                                      type: "method",
+                                      id: method.id,
+                                      title: `طريقة الشحن "${method.name_ar}"`,
+                                    })
+                                  }
+                                  className="text-xs text-rose-700 hover:text-rose-900 font-bold hover:bg-rose-50 px-2.5 py-1.5 rounded-lg transition-colors focus-visible:ring-2 focus-visible:ring-rose-700"
+                                  data-testid={`delete-method-${method.id}`}
+                                >
+                                  حذف
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))}
