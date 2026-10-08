@@ -47,3 +47,19 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Smoke Test
+        run: |
+          npm run start &
+          SERVER_PID=$!
+          for i in $(seq 1 30); do
+            if RESPONSE=$(curl -sf http://127.0.0.1:3000/api/health); then
+              echo "Health check succeeded: $RESPONSE"
+              kill $SERVER_PID || true
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Health check timed out after 30 seconds"
+          kill $SERVER_PID || true
+          exit 1
+
