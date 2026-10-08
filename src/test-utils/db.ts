@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { DbContext } from "../db/tx";
+import { DbContext, TransactionContext } from "../db/tx";
 import { runMigrations } from "../db/migrate";
 import postgres from "postgres";
 import { drizzle as drizzlePg } from "drizzle-orm/postgres-js";
