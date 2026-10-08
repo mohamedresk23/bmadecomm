@@ -16,6 +16,7 @@
     "staff:otp": "tsx scripts/get-owner-otp.ts",
     "staff:verify:local": "tsx scripts/verify-local-staff-access.ts",
     "db:migrate:local": "tsx scripts/migrate-local.ts",
+    "db:rollback:local": "tsx scripts/rollback-local.ts",
     "identity:verify:local": "tsx scripts/verify-local-registration.ts"
   },
   "dependencies": {

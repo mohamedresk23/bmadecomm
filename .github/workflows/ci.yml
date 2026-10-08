@@ -9,6 +9,22 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: bmadecomm_dev
+          POSTGRES_PASSWORD: 4TIismGz0_s3Zj2PsT4P6lhT2AL2Vt1W6pWtLbhp5lo
+          POSTGRES_DB: bmadecomm_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: "postgresql://bmadecomm_dev:4TIismGz0_s3Zj2PsT4P6lhT2AL2Vt1W6pWtLbhp5lo@127.0.0.1:5432/bmadecomm_dev"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
