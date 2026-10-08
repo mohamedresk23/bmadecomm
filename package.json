@@ -8,12 +8,15 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "identity:setup": "tsx scripts/setup-identity.ts",
     "identity:worker": "tsx scripts/identity-worker.ts",
     "staff:setup": "tsx scripts/setup-staff-access.ts",
     "staff:provision-owner": "tsx scripts/provision-owner.ts",
+    "staff:otp": "tsx scripts/get-owner-otp.ts",
     "staff:verify:local": "tsx scripts/verify-local-staff-access.ts",
     "db:migrate:local": "tsx scripts/migrate-local.ts",
+    "db:rollback:local": "tsx scripts/rollback-local.ts",
     "identity:verify:local": "tsx scripts/verify-local-registration.ts"
   },
   "dependencies": {
