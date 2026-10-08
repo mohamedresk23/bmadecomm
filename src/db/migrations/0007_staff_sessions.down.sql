@@ -7,3 +7,4 @@ DROP TABLE IF EXISTS "sessions";
 DROP TABLE IF EXISTS "roles";
 --> statement-breakpoint
 DROP TABLE IF EXISTS "permissions";
+

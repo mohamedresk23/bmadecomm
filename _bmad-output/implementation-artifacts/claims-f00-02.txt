@@ -1,0 +1,5 @@
+﻿commit e7d6f2086bdf72f6f3aa700adf1f7e78b76a571c
+Author: mohamedresk23 <mohammedresk4@gmail.com>
+Date:   Mon Oct 5 16:22:19 2026 +0300
+
+    feat(db): Implement F00-02 DB migrations, transaction context, and test harness

@@ -23,3 +23,4 @@ context: []
 - Added `Smoke Test` step in `.github/workflows/ci.yml` after `npm run build`.
 - The smoke test boots the production build (`npm run start &`), polls `http://127.0.0.1:3000/api/health` via `curl -sf`, outputs the health response, and kills the background server cleanly with zero exit code.
 - Verified lint, typecheck, and health route test pass cleanly.
+

@@ -3,3 +3,4 @@ DROP TABLE IF EXISTS "notification_deliveries";
 DROP TABLE IF EXISTS "job_attempts";
 --> statement-breakpoint
 DROP TABLE IF EXISTS "outbox";
+

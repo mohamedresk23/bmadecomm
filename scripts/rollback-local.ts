@@ -21,3 +21,4 @@ main().then(() => process.exit(0)).catch(() => {
   console.error("Local development rollback failed; check private configuration and PostgreSQL availability.");
   process.exit(1);
 });
+

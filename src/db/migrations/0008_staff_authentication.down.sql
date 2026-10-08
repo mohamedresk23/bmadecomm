@@ -13,3 +13,4 @@ ALTER TABLE "staff_accounts" DROP COLUMN IF EXISTS "mfa_enrolled_at";
 ALTER TABLE "staff_accounts" DROP COLUMN IF EXISTS "mfa_seed";
 --> statement-breakpoint
 ALTER TABLE "sessions" DROP COLUMN IF EXISTS "authenticated_at";
+

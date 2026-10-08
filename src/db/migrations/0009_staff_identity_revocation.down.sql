@@ -9,3 +9,4 @@ DROP FUNCTION IF EXISTS staff_identity_revoke();
 DROP TRIGGER IF EXISTS staff_role_assignment_lock ON user_roles;
 --> statement-breakpoint
 DROP FUNCTION IF EXISTS staff_role_assignment_lock();
+
