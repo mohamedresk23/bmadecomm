@@ -101,7 +101,8 @@ export const proofTokens = pgTable("proof_tokens", {
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+  subject: text("subject"),
+}, t => [index("proof_tokens_subject_purpose_idx").on(t.subject, t.purpose)]);
 
 export const registrationRateBuckets = pgTable("registration_rate_buckets", {
   key: text("key").primaryKey(),
@@ -142,7 +143,14 @@ export const sessions = pgTable("sessions", {
   idleExpiresAt: timestamp("idle_expires_at", { withTimezone: true }).notNull(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   authenticatedAt: timestamp("authenticated_at", { withTimezone: true }),
-}, t => [index("sessions_user_idx").on(t.userId), check("sessions_context", sql`${t.context} in ('staff', 'customer')`)]);
+  scope: text("scope").$type<"admin" | "customer">(),
+  subject: text("subject"),
+  absoluteExpiresAt: timestamp("absolute_expires_at", { withTimezone: true }),
+}, t => [
+  index("sessions_user_idx").on(t.userId),
+  index("sessions_subject_idx").on(t.subject),
+  check("sessions_context", sql`${t.context} in ('staff', 'customer')`),
+]);
 
 export const staffAuthProofs = pgTable("staff_auth_proofs", {
   id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => staffAccounts.userId),
@@ -225,3 +233,24 @@ export const shippingMethods = pgTable(
     index("shipping_methods_zone_idx").on(t.zoneId),
   ]
 );
+
+// F00-06: Idempotency keys for safe retries
+export const operationKeys = pgTable(
+  "operation_keys",
+  {
+    id: text("id").primaryKey(),
+    actor: text("actor").notNull(),
+    operation: text("operation").notNull(),
+    key: text("key").notNull(),
+    payloadHash: text("payload_hash").notNull(),
+    result: jsonb("result"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("operation_keys_scope_uq").on(t.actor, t.operation, t.key),
+    check("operation_keys_hash_check", sql`${t.payloadHash} ~ '^[0-9a-f]{64}$'`),
+    check("operation_keys_completion_check", sql`${t.completedAt} IS NOT NULL OR ${t.result} IS NULL`),
+  ]
+);
+

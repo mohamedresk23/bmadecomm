@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { proofTokens } from "../../db/schema";
-import type { DbContext, TransactionContext } from "../../db/tx";
+import type { DbContext } from "../../db/tx";
 import { generateToken, hashToken } from "./tokens";
 
 export type ProofPurpose = "password_reset" | "email_verification";
@@ -10,12 +10,12 @@ export async function issueProof(context: DbContext, purpose: ProofPurpose, subj
   const [proof] = await context.insert(proofTokens).values({ id: randomUUID(), purpose, subject,
     tokenHash: hashToken(token)!, createdAt: sql`clock_timestamp()`,
     expiresAt: purpose === "password_reset" ? sql`clock_timestamp() + interval '30 minutes'` : sql`clock_timestamp() + interval '24 hours'`,
-  }).returning();
+  } as never).returning();
   return { id: proof.id, expiresAt: proof.expiresAt, token };
 }
 
 /** Pass the business transaction; rollback must restore proof eligibility. */
-export async function consumeProof(tx: TransactionContext, purpose: ProofPurpose, subject: string, token: unknown): Promise<boolean> {
+export async function consumeProof(tx: DbContext, purpose: ProofPurpose, subject: string, token: unknown): Promise<boolean> {
   const hash = hashToken(token);
   if (!hash) return false;
   await tx.select().from(proofTokens).where(and(eq(proofTokens.tokenHash, hash),
