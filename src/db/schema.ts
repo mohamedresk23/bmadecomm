@@ -254,3 +254,35 @@ export const operationKeys = pgTable(
   ]
 );
 
+// E03-03: Payment method configurations
+export const paymentMethodConfigs = pgTable(
+  "payment_method_configs",
+  {
+    id: text("id").primaryKey(),
+    titleAr: text("title_ar").notNull(),
+    titleEn: text("title_en").notNull(),
+    instructionsAr: text("instructions_ar").notNull().default(""),
+    instructionsEn: text("instructions_en").notNull().default(""),
+    isEnabled: boolean("is_enabled").notNull().default(true),
+    minOrderSubtotalMinor: integer("min_order_subtotal_minor"),
+    maxOrderSubtotalMinor: integer("max_order_subtotal_minor"),
+    version: integer("version").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (t) => [
+    check("payment_method_configs_id_check", sql`${t.id} IN ('cod', 'online_card')`),
+    check("payment_method_title_ar_length", sql`length(${t.titleAr}) >= 2 AND length(${t.titleAr}) <= 100`),
+    check("payment_method_title_en_length", sql`length(${t.titleEn}) >= 2 AND length(${t.titleEn}) <= 100`),
+    check("payment_method_instructions_ar_length", sql`length(${t.instructionsAr}) <= 2000`),
+    check("payment_method_instructions_en_length", sql`length(${t.instructionsEn}) <= 2000`),
+    check("payment_method_min_non_negative", sql`${t.minOrderSubtotalMinor} >= 0`),
+    check("payment_method_max_non_negative", sql`${t.maxOrderSubtotalMinor} >= 0`),
+    check(
+      "payment_method_subtotal_bounds_valid",
+      sql`${t.minOrderSubtotalMinor} IS NULL OR ${t.maxOrderSubtotalMinor} IS NULL OR ${t.minOrderSubtotalMinor} <= ${t.maxOrderSubtotalMinor}`
+    ),
+    check("payment_method_version_positive", sql`${t.version} > 0`),
+  ]
+);
+

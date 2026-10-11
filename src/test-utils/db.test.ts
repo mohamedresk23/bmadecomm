@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { setupTestDb, setupCustomTestDb, withIsolatedTx, getTestPoolDb, Barrier } from "./db";
 import { migrationsTest } from "../db/schema";
+import { isPostgresTest } from "../db";
 
 beforeAll(async () => {
   await setupTestDb();
@@ -29,7 +30,9 @@ describe("Test Database Isolation Harness", () => {
     });
   });
 
-  it("isolates concurrent transactions across independent pool connections with barrier synchronization", async () => {
+  it.skipIf(!isPostgresTest)(
+    "isolates concurrent transactions across independent pool connections with barrier synchronization",
+    async () => {
     const { poolDb, client } = getTestPoolDb(5);
 
     try {
