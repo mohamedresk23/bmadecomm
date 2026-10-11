@@ -93,38 +93,36 @@ These stories break down the Epic 03 implementation specification into small, in
 
 ## Story: E03-03 — Payment Method Enablement & Customer Guidance
 
-- **Story ID:** `E03-03`
+> **Decomposition Notice:** For single AI session execution and strict vertical slicing, this feature is broken down into three independent implementation stories documented in [tickets-e03-03.md](./tickets-e03-03.md):
+> 1. `E03-03-01`: Payment Method Schema, Admin API & Optimistic Concurrency
+> 2. `E03-03-02`: Store Owner Payment Methods Management UI
+> 3. `E03-03-03`: Storefront Payment Metadata & Server-Side Checkout Eligibility Engine
+
+- **Story ID:** `E03-03` (Epic Feature Umbrella; see [tickets-e03-03.md](./tickets-e03-03.md))
 - **Objective:** Enable the Store Owner to toggle Cash on Delivery and Online Card payment availability, customize localized customer instructions, and set subtotal thresholds without exposing gateway secrets.
 - **Scope:**
   - **Database:**
-    - Create `payment_method_configs` table (`id` enum `'cod' | 'online_card'`, `title_ar`, `title_en`, `instructions_ar`, `instructions_en`, `is_enabled`, `min_order_subtotal_minor`, `max_order_subtotal_minor`, `updated_at`, `updated_by`).
+    - Create `payment_method_configs` table (`id` enum `'cod' | 'online_card'`, `title_ar`, `title_en`, `instructions_ar`, `instructions_en`, `is_enabled`, `min_order_subtotal_minor`, `max_order_subtotal_minor`, `version`, `updated_at`, `updated_by`).
     - Seed default rows for `'cod'` (enabled) and `'online_card'` (enabled).
   - **Backend:**
     - Implement `PaymentSettingsService` in `src/modules/content/settings/application/payment-settings.ts`.
-    - Query contract exporting only enabled payment methods with customer-facing titles and instructions for Checkout (Epic 10).
+    - Server-side checkout eligibility contract (`assertPaymentMethodEligible`, `getEligiblePaymentMethods`) with row locking and pricing subtotal comparison.
     - Strict DTO serialization allowlisting to guarantee zero provider credentials or secrets are returned (FR-59, AD-16).
-    - Audit logging for payment method status and configuration updates.
+    - Audit logging (`payment_method_config.updated`) and optimistic locking via `expected_version`.
     - Endpoints:
       - `GET /api/v1/admin/settings/payments` (Owner only; lists payment method configs).
       - `PUT /api/v1/admin/settings/payments/{id}` (Owner only; updates toggle, copy, or subtotal thresholds).
+      - `GET /api/v1/store/settings/public` (Public; returns safe active/ready payment metadata).
   - **Frontend:**
-    - Payments tab at `/admin/settings/payments`.
+    - Payments tab at `/admin/settings?tab=payments`.
     - Payment method cards for Cash on Delivery and Online Card Payment with master switch toggle (`is_enabled`).
     - Textarea inputs for localized customer checkout instructions (Arabic and English).
     - Numeric inputs for optional minimum and maximum order subtotal thresholds in EGP.
-    - Security informational notice explaining that gateway API credentials and webhook keys are securely managed on the server and cannot be edited in the browser.
+    - Warning banner on disabling both methods and security notice that gateway secrets are managed on the server.
 - **Dependencies:** E03-01.
 - **Affected Layers:** Frontend, Backend, Database.
-- **Acceptance Criteria:**
-  - **AC-E03-03-01:** Toggling payment method status updates `is_enabled` in the database and writes an audit event.
-  - **AC-E03-03-02:** Updating instructions and subtotal limits validates inputs and persists values cleanly.
-  - **AC-E03-03-03:** All API responses and logs contain zero provider secrets, API keys, or private tokens (FR-59, AD-16).
-  - **AC-E03-03-04:** Non-Owner staff receive `403 Forbidden` on payment settings endpoints.
-- **Test Expectations:**
-  - Unit tests for payment method input schemas validating length constraints and non-negative subtotal bounds.
-  - Integration tests verifying that toggling method availability updates the DB and records audit diffs.
-  - Response security test asserting the complete absence of secret or credential keys in API responses.
-  - Component tests for payment method cards, toggles, instruction textareas, and save actions.
+- **Acceptance Criteria:** AC-E03-03-01 through AC-E03-03-13 (detailed in `tickets-e03-03.md`).
+- **Test Expectations:** Unit, API, PostgreSQL concurrency, and React component tests across the three sub-stories.
 
 ---
 

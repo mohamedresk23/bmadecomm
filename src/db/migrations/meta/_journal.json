@@ -85,6 +85,13 @@
       "when": 1791375000000,
       "tag": "0011_shipping_zones_and_methods",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791380000000,
+      "tag": "0012_payment_method_configs",
+      "breakpoints": true
     }
   ]
 }
