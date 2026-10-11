@@ -12,6 +12,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:postgres": "vitest run --config vitest.postgres.config.ts",
     "identity:setup": "tsx scripts/setup-identity.ts",
     "identity:worker": "tsx scripts/identity-worker.ts",
     "staff:setup": "tsx scripts/setup-staff-access.ts",
