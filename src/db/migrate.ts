@@ -1,6 +1,7 @@
-// import { migrate as migratePg } from "drizzle-orm/postgres-js/migrator";
+import { migrate as migratePg } from "drizzle-orm/postgres-js/migrator";
 import { migrate as migratePglite } from "drizzle-orm/pglite/migrator";
-import { db } from "./index";
+import { sql } from "drizzle-orm";
+import { db as defaultDb } from "./index";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
@@ -135,9 +136,18 @@ export async function runMigrations(options: MigrationOptions = {}) {
     return { applied: [] };
   }
 
-  console.log("Running migrations...");
-  if (process.env.NODE_ENV === "test") {
-    // db is Pglite database
+  if (!quiet) {
+    console.log(`Running ${pendingBefore.length} migrations...`);
+  }
+
+  const isPglite =
+    targetDb.constructor?.name === "PgliteDatabase" ||
+    (targetDb === defaultDb && process.env.NODE_ENV === "test");
+
+  if (isPglite) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await migratePglite(targetDb as any, { migrationsFolder });
+  } else {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await migratePg(targetDb as any, { migrationsFolder });
   }

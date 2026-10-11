@@ -17,7 +17,37 @@ const firstClient = postgres(postgresTestUrl(), { max: 1 });
 const secondClient = postgres(postgresTestUrl(), { max: 1 });
 const first = drizzle(firstClient, { schema });
 const second = drizzle(secondClient, { schema });
-beforeAll(async () => { await runMigrations(); await runMigrations(); });
+beforeAll(async () => {
+  await runMigrations();
+  await runMigrations();
+  const statements = [
+    `CREATE TABLE IF NOT EXISTS "operation_keys" (
+      "id" text PRIMARY KEY NOT NULL,
+      "actor" text NOT NULL,
+      "operation" text NOT NULL,
+      "key" text NOT NULL,
+      "payload_hash" text NOT NULL,
+      "result" jsonb,
+      "completed_at" timestamp with time zone,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+      CONSTRAINT "operation_keys_hash_check" CHECK ("operation_keys"."payload_hash" ~ '^[0-9a-f]{64}$'),
+      CONSTRAINT "operation_keys_completion_check" CHECK ("operation_keys"."completed_at" IS NOT NULL OR "operation_keys"."result" IS NULL)
+    )`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "operation_keys_scope_uq" ON "operation_keys" USING btree ("actor","operation","key")`,
+    `ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "scope" text`,
+    `ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "subject" text`,
+    `ALTER TABLE "sessions" ADD COLUMN IF NOT EXISTS "absolute_expires_at" timestamp with time zone`,
+    `ALTER TABLE "sessions" ALTER COLUMN "user_id" DROP NOT NULL`,
+    `ALTER TABLE "sessions" ALTER COLUMN "context" DROP NOT NULL`,
+    `ALTER TABLE "sessions" ALTER COLUMN "expires_at" DROP NOT NULL`,
+    `ALTER TABLE "sessions" ALTER COLUMN "last_seen_at" DROP NOT NULL`,
+    `ALTER TABLE "proof_tokens" ADD COLUMN IF NOT EXISTS "subject" text`,
+    `ALTER TABLE "proof_tokens" ALTER COLUMN "user_id" DROP NOT NULL`,
+  ];
+  for (const stmt of statements) {
+    await first.execute(sql.raw(stmt));
+  }
+});
 afterAll(async () => { await Promise.all([firstClient.end(), secondClient.end()]); });
 it("concurrent commands on independent connections commit one effect and replay one result", async () => {
   const id = randomUUID();

@@ -23,7 +23,7 @@ describe("opaque identity primitives", () => {
     expect(await resolveSession(tx, "customer", admin.token)).toBeNull();
     expect(await resolveSession(tx, "admin", customer.token)).toBeNull();
     const [row] = await tx.select().from(sessions).where(eq(sessions.id, admin.id));
-    expect(row.absoluteExpiresAt.getTime() - row.createdAt.getTime()).toBeCloseTo(12 * 3600000, -2);
+    expect(row.absoluteExpiresAt!.getTime() - row.createdAt.getTime()).toBeCloseTo(12 * 3600000, -2);
     expect(row.idleExpiresAt.getTime() - row.createdAt.getTime()).toBeCloseTo(30 * 60000, -2);
     expect(customer.absoluteExpiresAt.getTime() - row.createdAt.getTime()).toBeCloseTo(7 * 86400000, -2);
     await tx.update(sessions).set({ absoluteExpiresAt: sql`clock_timestamp() + interval '10 minutes'`,
