@@ -10,3 +10,19 @@
   summary: Versioned Financial and Operational Policies (E03-04)
   evidence: Split from E03 as it represents an independent feature deliverable for financial and operational policies.
 
+
+- source_spec: none
+  summary: Product and Variant Drafts (E04-02)
+  evidence: Split from Epic 04 to deliver category management foundation as an independent vertical slice.
+
+- source_spec: none
+  summary: Product Images & Media Management (E04-03)
+  evidence: Split from Epic 04; depends on product drafts and media storage foundation.
+
+- source_spec: none
+  summary: Publish, Slug Redirects & SEO Metadata (E04-04)
+  evidence: Split from Epic 04; depends on product drafts and images.
+
+- source_spec: none
+  summary: Product Duplicate, Archive and Delete Lifecycle (E04-05)
+  evidence: Split from Epic 04; depends on product publish and catalog lifecycle.

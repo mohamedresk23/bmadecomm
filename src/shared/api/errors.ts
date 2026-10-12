@@ -42,8 +42,8 @@ export class ApiError extends Error {
     return new ApiError(404, 'NOT_FOUND', message);
   }
 
-  static conflict(message: string) {
-    return new ApiError(409, 'CONFLICT', message);
+  static conflict(message: string, details?: ErrorDetail[]) {
+    return new ApiError(409, 'CONFLICT', message, details);
   }
 
   static unprocessableEntity(message: string, details?: ErrorDetail[]) {

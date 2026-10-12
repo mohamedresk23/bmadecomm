@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, boolean, primaryKey, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, boolean, primaryKey, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
@@ -283,6 +283,28 @@ export const paymentMethodConfigs = pgTable(
       sql`${t.minOrderSubtotalMinor} IS NULL OR ${t.maxOrderSubtotalMinor} IS NULL OR ${t.minOrderSubtotalMinor} <= ${t.maxOrderSubtotalMinor}`
     ),
     check("payment_method_version_positive", sql`${t.version} > 0`),
+  ]
+);
+
+// E04-01: Category Tree Management
+export const categories = pgTable(
+  "categories",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    parentId: text("parent_id").references((): AnyPgColumn => categories.id, { onDelete: "restrict" }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex("categories_slug_idx").on(t.slug),
+    index("categories_parent_idx").on(t.parentId),
+    index("categories_sort_idx").on(t.sortOrder),
+    check("categories_slug_normalized", sql`${t.slug} = lower(btrim(${t.slug}))`),
   ]
 );
 
