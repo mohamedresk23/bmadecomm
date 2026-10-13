@@ -8,5 +8,8 @@ export function staffNavigation(roles: readonly string[]) {
   if (roles.includes('owner')) {
     items.push({ href: '/admin/settings', label: 'Store settings' });
   }
+  if (roles.some((r) => ['owner', 'staff', 'catalog_manager', 'catalog'].includes(r))) {
+    items.push({ href: '/admin/catalog/categories', label: 'Categories' });
+  }
   return items;
 }

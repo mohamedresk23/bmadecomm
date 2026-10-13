@@ -43,3 +43,45 @@ export async function requireOwnerSession(req: Request, validateCsrf = false) {
 
   return { token, context, config, csrf };
 }
+
+export async function requireStaffSession(
+  req: Request,
+  validateCsrf = false,
+  allowedRoles: string[] = ["owner", "staff", "catalog_manager", "catalog"]
+) {
+  const token = readStaffCookie(req);
+  if (!token) {
+    throw ApiError.unauthorized("Authentication required");
+  }
+
+  const context = await resolveStaffSession(db, token, STAFF_SESSION_POLICY);
+  if (!context) {
+    throw ApiError.unauthorized("Authentication required");
+  }
+
+  const hasRole = context.roles.some((r) => allowedRoles.includes(r));
+  if (!hasRole) {
+    throw ApiError.forbidden("Insufficient permissions for this operation");
+  }
+
+  const config = staffConfig();
+  const csrf = sessionCsrf(token, config.key);
+
+  if (validateCsrf) {
+    const origin = req.headers.get("origin");
+    if (origin && origin !== config.origin) {
+      throw ApiError.forbidden("Invalid request origin");
+    }
+
+    const csrfHeader = req.headers.get("x-csrf-token");
+    if (!csrfHeader || !sameSecret(csrfHeader, csrf)) {
+      throw ApiError.forbidden("Invalid CSRF token");
+    }
+  }
+
+  return { token, context, config, csrf };
+}
+
+export async function requireCatalogStaffSession(req: Request, validateCsrf = false) {
+  return requireStaffSession(req, validateCsrf, ["owner", "staff", "catalog_manager", "catalog"]);
+}
