@@ -1,4 +1,5 @@
-import sharp from "sharp";
+import { processImage } from "./image-process";
+import { hasAnimation } from "./image-policy";
 import { createId } from "@paralleldrive/cuid2";
 import { db } from "../../db";
 import { media } from "../../db/schema";
@@ -48,7 +49,7 @@ export async function checkMagicBytes(buffer: Buffer): Promise<string | null> {
   return null;
 }
 
-export async function processAndSaveMedia(file: File) {
+export async function processAndSaveMedia(file: Pick<File, "name" | "size" | "type" | "arrayBuffer">, signal?: AbortSignal) {
   if (file.size > MAX_FILE_SIZE) {
     throw new ApiError(413, "PAYLOAD_TOO_LARGE", "Payload Too Large");
   }
@@ -57,40 +58,36 @@ export async function processAndSaveMedia(file: File) {
   const buffer = Buffer.from(arrayBuffer);
 
   const detectedMime = await checkMagicBytes(buffer);
-  if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
+  const extensions: Record<string, RegExp> = { "image/jpeg": /\.jpe?g$/i, "image/png": /\.png$/i, "image/webp": /\.webp$/i };
+  if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime) || file.type !== detectedMime || !extensions[detectedMime].test(file.name)) {
     throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported Media Type");
   }
 
-  // Process with sharp to strip metadata and convert/re-encode
-  // We'll keep the same format but sharp will naturally strip EXIF
-  let processedBuffer: Buffer;
-  let extension = "bin";
-  
-  if (detectedMime === "image/jpeg") {
-    processedBuffer = await sharp(buffer).jpeg().toBuffer();
-    extension = "jpg";
-  } else if (detectedMime === "image/png") {
-    processedBuffer = await sharp(buffer).png().toBuffer();
-    extension = "png";
-  } else if (detectedMime === "image/webp") {
-    processedBuffer = await sharp(buffer).webp().toBuffer();
-    extension = "webp";
-  } else {
-    throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Unsupported Media Type");
-  }
+  if (hasAnimation(buffer, detectedMime)) throw ApiError.unprocessableEntity("Static images required");
+  const processedBuffer = await processImage(buffer, detectedMime, signal);
+  const extension = detectedMime === "image/jpeg" ? "jpg" : detectedMime.split("/")[1];
 
   const id = createId();
   const filename = `${id}.${extension}`;
   
-  await storage.savePrivate(filename, processedBuffer);
-
-  await db.insert(media).values({
+  let staged = false;
+  try {
+    await storage.savePrivate(filename, processedBuffer);
+    staged = true;
+    if (signal?.aborted) throw new ApiError(400, "REQUEST_ABORTED", "Request aborted");
+    await db.insert(media).values({
     id,
     filename,
     mimeType: detectedMime,
     size: processedBuffer.length,
     status: "pending",
-  });
+    });
+  } catch (error) {
+    try { if (staged) await storage.removePrivate(filename); }
+    catch { try { await storage.recordOrphan(filename); } catch { console.error("Media recovery required", { key: filename }); } }
+    if (error instanceof ApiError) throw error;
+    throw new ApiError(503, "MEDIA_UNAVAILABLE", "Media storage unavailable");
+  }
 
   return {
     id,
@@ -109,11 +106,18 @@ export async function publishMedia(id: string) {
     return { id: record.id, url: `/uploads/${record.filename}` };
   }
 
-  const url = await storage.publish(record.filename);
+  let url: string;
+  try { url = await storage.publish(record.filename); }
+  catch { throw new ApiError(503, "MEDIA_UNAVAILABLE", "Media storage unavailable"); }
 
-  await db.update(media)
+  try { await db.update(media)
     .set({ status: "active" })
-    .where(eq(media.id, id));
+    .where(eq(media.id, id)); }
+  catch {
+    try { await storage.removePublic(record.filename); }
+    catch { try { await storage.recordOrphan(record.filename, "public"); } catch { console.error("Media recovery required", { key: record.filename, location: "public" }); } }
+    throw new ApiError(503, "MEDIA_UNAVAILABLE", "Media storage unavailable");
+  }
 
   return {
     id: record.id,

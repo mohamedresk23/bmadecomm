@@ -30,3 +30,10 @@
 - source_spec: `spec-e04-02.md`
   summary: Stabilize the existing staff TOTP replay test across time-step boundaries.
   evidence: staff-auth.test.ts regenerates otp(f.seed) for each replay assertion; crossing its 30-second window generates a genuinely new permitted code. The final full run exposed this once; all 20 unchanged auth tests passed on isolated rerun. Reuse the original code in the replay assertion in a separate authentication-test change.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-01-secure-media-preparation.md`
+  summary: Make legacy explicit media publication expose complete public files atomically.
+  evidence: Baseline storage.publish used fs.copyFile directly into the publicly served destination; current exclusive writing prevents overwrite but retains this pre-existing exposure window. Stage and atomically expose complete bytes in a separately scoped reliability change.
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-01-secure-media-preparation.md`
+  summary: Define and implement serialized concurrent publication of the same pending media record.
+  evidence: Baseline selected status, copied bytes and updated status without a lock. Current exclusive creation safely rejects a concurrent collision; sequential idempotency is verified, concurrent idempotency is not. A separate transaction/locking design and race test must settle concurrent publication behavior.

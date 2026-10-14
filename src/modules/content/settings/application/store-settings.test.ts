@@ -1,4 +1,8 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { LocalFileSystemAdapter, storage } from "../../../../lib/media/storage";
 import { eq, sql } from "drizzle-orm";
 import { setupTestDb, withIsolatedTx } from "../../../../test-utils/db";
 import { auditEvents, media, storeSettings } from "../../../../db/schema";
@@ -10,6 +14,18 @@ import {
 } from "./store-settings";
 
 beforeAll(setupTestDb);
+let storageRoot: string;
+beforeEach(async () => {
+  storageRoot = await fs.mkdtemp(path.join(os.tmpdir(), "store-settings-media-"));
+  const adapter = new LocalFileSystemAdapter(storageRoot);
+  vi.spyOn(storage, "savePrivate").mockImplementation(adapter.savePrivate.bind(adapter));
+  vi.spyOn(storage, "publish").mockImplementation(adapter.publish.bind(adapter));
+});
+afterEach(async () => {
+  vi.restoreAllMocks();
+  if (!path.resolve(storageRoot).startsWith(path.resolve(os.tmpdir()) + path.sep)) throw new Error("Unsafe fixture root");
+  await fs.rm(storageRoot, { recursive: true, force: true });
+});
 
 describe("Store Settings Application Service", () => {
   it("retrieves default store settings with currency unlocked when no orders exist", async () => {
@@ -202,7 +218,6 @@ describe("Store Settings Application Service", () => {
       // 2. Inserts media in pending state
       const mediaId = "logo_test_1";
       const filename = `${mediaId}.png`;
-      const { storage } = await import("../../../../lib/media/storage");
       await storage.savePrivate(filename, Buffer.from("fake-png-content"));
 
       await tx.insert(media).values({

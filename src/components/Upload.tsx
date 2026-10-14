@@ -1,86 +1,32 @@
 "use client";
+import { useEffect, useState } from "react";
 
-import { useState } from "react";
-
-export function Upload() {
+export function Upload({ csrfToken }: { csrfToken: string }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ id: string; url?: string } | null>(null);
-
-  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    setError(null);
-    setResult(null);
-
-    const formData = new FormData();
-    formData.append("file", file);
-
+  const [result, setResult] = useState<{ id: string } | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  useEffect(() => {
+    return () => { if (preview) URL.revokeObjectURL(preview); };
+  }, [preview]);
+  async function upload(selected: File) {
+    setUploading(true); setError(null); setResult(null);
+    const body = new FormData(); body.append("file", selected);
     try {
-      const res = await fetch("/api/media/upload", {
-        method: "POST",
-        // In a real app, you would pass real auth headers here
-        headers: {
-          "x-mock-user": JSON.stringify({ id: "user1", roles: [], permissions: ["media:upload"] }),
-        },
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData?.error?.message || `Upload failed with status ${res.status}`);
-      }
-
-      const data = await res.json();
+      const res = await fetch("/api/media/upload", { method: "POST", credentials: "same-origin", headers: { "X-CSRF-Token": csrfToken }, body });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `Upload failed with status ${res.status}`);
       setResult(data);
-
-      // Now publish it so we can preview it
-      const publishRes = await fetch("/api/media/publish", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-mock-user": JSON.stringify({ id: "user1", roles: [], permissions: ["media:upload"] }),
-        },
-        body: JSON.stringify({ id: data.id }),
-      });
-
-      if (publishRes.ok) {
-        const publishData = await publishRes.json();
-        setResult(publishData);
-      }
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError("An unknown error occurred");
-      }
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  return (
-    <div className="p-4 border rounded shadow-sm">
-      <h2 className="text-lg font-bold mb-4">Upload Media</h2>
-      <input
-        type="file"
-        accept="image/png, image/jpeg, image/webp"
-        onChange={handleUpload}
-        disabled={uploading}
-        className="mb-4"
-        data-testid="upload-input"
-      />
-      {uploading && <p className="text-gray-500" data-testid="uploading-state">Uploading...</p>}
-      {error && <p className="text-red-500" data-testid="error-state">{error}</p>}
-      {result && (
-        <div className="mt-4" data-testid="success-state">
-          <p className="text-green-600 mb-2">Upload successful!</p>
-          {result.url && <img src={result.url} alt="Uploaded media" className="max-w-xs border rounded" data-testid="preview-image" />}
-          <p className="text-xs text-gray-400 mt-2">ID: {result.id}</p>
-        </div>
-      )}
-    </div>
-  );
+    } catch (err) { setError(err instanceof Error ? err.message : "Upload failed"); }
+    finally { setUploading(false); }
+  }
+  return <div className="p-4 border rounded shadow-sm" aria-busy={uploading}>
+    <h2 className="text-lg font-bold mb-4">Upload Media</h2>
+    <label htmlFor="media-file">Static JPEG, PNG or WebP, up to 5 MiB, 4096 pixels per side and 8 million pixels</label>
+    <input id="media-file" type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading} data-testid="upload-input" onChange={(e) => { const selected = e.target.files?.[0]; e.target.value = ""; if (selected) { setFile(selected); setPreview(URL.createObjectURL(selected)); void upload(selected); } }} />
+    {uploading && <p role="status" data-testid="uploading-state">Uploading...</p>}
+    {error && <><p role="alert" data-testid="error-state">{error}</p><button type="button" disabled={uploading} onClick={() => { if (file) void upload(file); }}>Retry upload</button></>}
+    {result && <div role="status" data-testid="success-state"><p>Upload successful. Media remains private and pending.</p>{preview && <img src={preview} alt="Uploaded media local preview" className="max-w-xs" data-testid="preview-image" />}<p>ID: {result.id}</p></div>}
+  </div>;
 }

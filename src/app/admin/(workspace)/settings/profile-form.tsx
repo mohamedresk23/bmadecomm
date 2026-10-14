@@ -106,7 +106,16 @@ export function StoreProfileForm({ initialData }: ProfileFormProps) {
   // Handle Logo Upload via /api/media/upload
   async function handleLogoUpload(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
+
+    if (!csrf) {
+      setToast({
+        type: "error",
+        message: "تعذر التحقق من الجلسة. أعد تحميل الصفحة أو سجل الدخول مجددًا ثم أعد رفع الشعار.",
+      });
+      return;
+    }
 
     setIsUploading(true);
     setToast(null);
@@ -117,10 +126,14 @@ export function StoreProfileForm({ initialData }: ProfileFormProps) {
 
       const res = await fetch("/api/media/upload", {
         method: "POST",
+        headers: { "X-CSRF-Token": csrf },
         body: formData,
       });
 
       if (!res.ok) {
+        if (res.status === 401 || res.status === 403) {
+          throw new Error("تعذر التحقق من الجلسة أو صلاحية الرفع. أعد تحميل الصفحة أو سجل الدخول مجددًا ثم أعد رفع الشعار.");
+        }
         const err = await res.json();
         throw new Error(err.error?.message || "فشل رفع الصورة.");
       }
