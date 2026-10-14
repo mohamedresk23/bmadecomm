@@ -26,3 +26,7 @@
 - source_spec: none
   summary: Product Duplicate, Archive and Delete Lifecycle (E04-05)
   evidence: Split from Epic 04; depends on product publish and catalog lifecycle.
+
+- source_spec: `spec-e04-02.md`
+  summary: Stabilize the existing staff TOTP replay test across time-step boundaries.
+  evidence: staff-auth.test.ts regenerates otp(f.seed) for each replay assertion; crossing its 30-second window generates a genuinely new permitted code. The final full run exposed this once; all 20 unchanged auth tests passed on isolated rerun. Reuse the original code in the replay assertion in a separate authentication-test change.

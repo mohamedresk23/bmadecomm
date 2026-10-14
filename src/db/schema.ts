@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, boolean, primaryKey, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
@@ -307,4 +307,42 @@ export const categories = pgTable(
     check("categories_slug_normalized", sql`${t.slug} = lower(btrim(${t.slug}))`),
   ]
 );
+
+export const products = pgTable("products", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  status: text("status").notNull().default("draft"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [check("products_status_check", sql`${t.status} IN ('draft', 'published', 'archived')`)]);
+
+export const variants = pgTable("variants", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  sku: text("sku").notNull(),
+  combinationKey: text("combination_key").notNull(),
+  priceMinor: bigint("price_minor", { mode: "bigint" }).notNull(),
+  comparePriceMinor: bigint("compare_price_minor", { mode: "bigint" }),
+  currency: text("currency").notNull(),
+  currencyScale: integer("currency_scale").notNull(),
+  sortOrder: integer("sort_order").notNull(),
+}, t => [
+  uniqueIndex("variants_sku_unique").on(t.sku),
+  uniqueIndex("variants_product_combination_unique").on(t.productId, t.combinationKey),
+  check("variants_sku_normalized", sql`${t.sku} = upper(btrim(${t.sku})) AND ${t.sku} ~ '^[A-Z0-9][A-Z0-9._-]{0,63}$'`),
+  check("variants_money_valid", sql`${t.priceMinor} >= 0 AND (${t.comparePriceMinor} IS NULL OR ${t.comparePriceMinor} >= ${t.priceMinor})`),
+  check("variants_currency_valid", sql`${t.currency} ~ '^[A-Z]{3}$' AND ${t.currencyScale} BETWEEN 0 AND 4`),
+]);
+
+export const variantAttributes = pgTable("variant_attributes", {
+  variantId: text("variant_id").notNull().references(() => variants.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  value: text("value").notNull(),
+}, t => [primaryKey({ columns: [t.variantId, t.name] })]);
+
+export const productCategories = pgTable("product_categories", {
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  categoryId: text("category_id").notNull().references(() => categories.id, { onDelete: "restrict" }),
+}, t => [primaryKey({ columns: [t.productId, t.categoryId] }), index("product_categories_category_idx").on(t.categoryId)]);
 

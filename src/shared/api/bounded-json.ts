@@ -1,6 +1,6 @@
 import { ApiError } from './errors';
 
-export async function boundedJson(req: Request) {
+export async function boundedJson(req: Request, maxBytes = 8192) {
   if (req.headers.get("content-type")?.split(";")[0].trim().toLowerCase() !== "application/json") {
     throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "JSON content type required");
   }
@@ -21,7 +21,7 @@ export async function boundedJson(req: Request) {
       const { done, value } = await Promise.race([reader.read(), deadline]);
       if (done) break;
       length += value.byteLength;
-      if (length > 8192) {
+      if (length > maxBytes) {
         throw new ApiError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
       }
       chunks.push(value);

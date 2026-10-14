@@ -10,6 +10,7 @@ export function staffNavigation(roles: readonly string[]) {
   }
   if (roles.some((r) => ['owner', 'staff', 'catalog_manager', 'catalog'].includes(r))) {
     items.push({ href: '/admin/catalog/categories', label: 'Categories' });
+    items.push({ href: '/admin/catalog/products', label: 'Products' });
   }
   return items;
 }
