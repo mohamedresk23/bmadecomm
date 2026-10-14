@@ -5,7 +5,7 @@ import {
   EGYPT_GOVERNORATES,
   type ShippingZoneDto,
   type ShippingMethodDto,
-} from "../../../modules/content/settings/contracts/shipping";
+} from "../../../../modules/content/settings/contracts/shipping";
 
 interface ZoneFormData {
   id?: string;
@@ -30,6 +30,7 @@ export function ShippingSettingsManager() {
   const [zones, setZones] = useState<ShippingZoneDto[]>([]);
   const [csrf, setCsrf] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [toast, setToast] = useState<{
     type: "success" | "error";
@@ -62,6 +63,7 @@ export function ShippingSettingsManager() {
       }
       const data = await res.json();
       setZones(data.zones || []);
+      setHasLoaded(true);
       if (data.csrf) setCsrf(data.csrf);
     } catch (err) {
       setToast({
@@ -87,6 +89,7 @@ export function ShippingSettingsManager() {
         if (!isMounted) return;
 
         setZones(data.zones || []);
+        setHasLoaded(true);
         if (data.csrf) setCsrf(data.csrf);
       } catch (err) {
         if (!isMounted) return;
@@ -377,8 +380,7 @@ export function ShippingSettingsManager() {
       {/* Toast Alert */}
       {toast && (
         <div
-          role="status"
-          aria-live="polite"
+          role={toast.type === "error" ? "alert" : "status"}
           className={`p-4 rounded-xl text-sm font-semibold flex items-center justify-between shadow-xs ${
             toast.type === "success"
               ? "bg-emerald-50 text-emerald-800 border border-emerald-300"
@@ -459,9 +461,9 @@ export function ShippingSettingsManager() {
       {/* Loading Skeleton */}
       {isLoading ? (
         <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-8 text-center text-slate-600">
-          <p className="animate-pulse font-medium">جاري تحميل مناطق وطرق الشحن...</p>
+          <p role="status" className="animate-pulse font-medium">جاري تحميل مناطق وطرق الشحن...</p>
         </div>
-      ) : zones.length === 0 ? (
+      ) : !hasLoaded ? <p role="status">تعذر تحميل البيانات. أعد تحميل الصفحة للمحاولة مجددًا.</p> : zones.length === 0 ? (
         /* Empty State */
         <div className="bg-white rounded-2xl shadow-xs border border-slate-300 p-12 text-center space-y-4">
           <div className="w-16 h-16 bg-blue-50 text-blue-800 rounded-2xl flex items-center justify-center mx-auto text-2xl font-bold border border-blue-200">
@@ -578,7 +580,7 @@ export function ShippingSettingsManager() {
                     لا توجد طرق شحن مضافة لهذه المنطقة حتى الآن. لن تتاح هذه المنطقة للعملاء في صفحة الدفع حتى تضيف طريقة شحن واحدة على الأقل.
                   </p>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto admin-table-scroll" role="region" aria-label="طرق الشحن — جدول قابل للتمرير" tabIndex={0}>
                     <table className="min-w-full divide-y divide-slate-200 text-sm">
                       <thead className="bg-slate-50 text-slate-700 text-xs text-right font-bold">
                         <tr>

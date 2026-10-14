@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type {
   CategoryTreeNode,
   CategoryDto,
-} from "../../../../modules/catalog/categories/contracts/category";
+} from "../../../../../modules/catalog/categories/contracts/category";
 
 interface CategoryFormData {
   id?: string;
@@ -20,6 +20,7 @@ export function CategoryManager() {
   const [categories, setCategories] = useState<CategoryTreeNode[]>([]);
   const [csrf, setCsrf] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoaded, setHasLoaded] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [toast, setToast] = useState<{
@@ -99,6 +100,7 @@ export function CategoryManager() {
       }
       const data = await res.json();
       setCategories(data.categories || []);
+      setHasLoaded(true);
       if (data.csrf) setCsrf(data.csrf);
 
       // Auto-expand all top-level nodes by default
@@ -132,6 +134,7 @@ export function CategoryManager() {
         const data = await res.json();
         if (!isMounted) return;
         setCategories(data.categories || []);
+        setHasLoaded(true);
         if (data.csrf) setCsrf(data.csrf);
 
         const initialExpanded: Record<string, boolean> = {};
@@ -306,7 +309,7 @@ export function CategoryManager() {
       {/* Toast Notification */}
       {toast && (
         <div
-          role="alert"
+          role={toast.type === "error" ? "alert" : "status"}
           className={`p-4 rounded-xl border flex items-center justify-between text-sm ${
             toast.type === "success"
               ? "bg-emerald-50 border-emerald-200 text-emerald-800"
@@ -347,11 +350,11 @@ export function CategoryManager() {
 
       {/* Main Content Area */}
       {isLoading ? (
-        <div className="bg-white rounded-2xl border border-slate-300 p-12 text-center text-slate-500">
+        <div role="status" className="bg-white rounded-2xl border border-slate-300 p-12 text-center text-slate-500">
           <div className="inline-block animate-spin w-6 h-6 border-2 border-blue-700 border-t-transparent rounded-full mb-3" />
           <p className="text-sm font-semibold">جاري تحميل شجرة التصنيفات...</p>
         </div>
-      ) : categories.length === 0 ? (
+      ) : !hasLoaded ? <p role="status">تعذر تحميل البيانات. أعد تحميل الصفحة للمحاولة مجددًا.</p> : categories.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-300 p-12 text-center space-y-4">
           <div className="w-12 h-12 bg-slate-100 rounded-full flex items-center justify-center mx-auto text-xl text-slate-500">
             📁

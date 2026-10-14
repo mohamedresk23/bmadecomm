@@ -2,7 +2,7 @@ import { eq, asc, sql, inArray } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { db as defaultDb } from "../../../../db";
 import { DbContext } from "../../../../db/tx";
-import { categories } from "../../../../db/schema";
+import { categories, productCategories } from "../../../../db/schema";
 import { ApiError } from "../../../../shared/api/errors";
 import { writeAudit } from "../../../../shared/authz/audit";
 import {
@@ -411,11 +411,15 @@ export async function deleteCategory(
     const [existing] = await tx
       .select()
       .from(categories)
-      .where(eq(categories.id, id));
+      .where(eq(categories.id, id)).for("update");
 
     if (!existing) {
       throw ApiError.notFound("Category not found");
     }
+
+    const assigned = await tx.select({ productId: productCategories.productId }).from(productCategories)
+      .where(eq(productCategories.categoryId, id)).limit(1);
+    if (assigned.length) throw ApiError.conflict("Cannot delete category assigned to products");
 
     // Check for child subcategories
     const subcategories = await tx

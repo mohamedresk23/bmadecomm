@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { StoreProfileForm } from "./profile-form";
-import type { AdminStoreProfileResponse } from "../../../modules/content/settings/contracts/store-profile";
+import type { AdminStoreProfileResponse } from "../../../../modules/content/settings/contracts/store-profile";
 
 afterEach(() => {
   cleanup();

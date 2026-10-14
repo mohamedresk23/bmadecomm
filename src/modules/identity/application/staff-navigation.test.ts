@@ -48,5 +48,11 @@ describe("staffNavigation", () => {
     const categoryItems = items.filter((i) => i.href === "/admin/catalog/categories");
     expect(categoryItems).toHaveLength(1);
   });
+
+  it("shows Products once for catalog roles and hides it for unrelated roles", () => {
+    for (const role of ["owner", "staff", "catalog_manager", "catalog"]) expect(staffNavigation([role]).filter(item => item.href === "/admin/catalog/products")).toHaveLength(1);
+    expect(staffNavigation(["owner", "catalog"]).filter(item => item.href === "/admin/catalog/products")).toHaveLength(1);
+    expect(staffNavigation(["support"]).some(item => item.href === "/admin/catalog/products")).toBe(false);
+  });
 });
 

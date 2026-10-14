@@ -59,6 +59,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     expect(await checkTableExists(testDb, "shipping_methods")).toBe(true);
     expect(await checkTableExists(testDb, "payment_method_configs")).toBe(true);
     expect(await checkTableExists(testDb, "categories")).toBe(true);
+    for (const table of ["products", "variants", "variant_attributes", "product_categories"]) expect(await checkTableExists(testDb, table)).toBe(true);
 
     // Verify seeded baseline payment methods
     const configs = await testDb.execute(sql`SELECT * FROM payment_method_configs ORDER BY id ASC;`);
@@ -73,7 +74,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     const applied = await getAppliedMigrations(testDb);
     expect(applied.length).toBe(pendingBefore.length);
     expect(applied[0].tag).toBe("0000_busy_loki");
-    expect(applied[applied.length - 1].tag).toBe("0013_categories");
+    expect(applied[applied.length - 1].tag).toBe("0014_product_drafts");
   }, 20000);
 
   it("re-running up is idempotent without duplicating or corrupting migration history", async () => {
@@ -95,12 +96,12 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     const appliedBefore = await getAppliedMigrations(testDb);
     const totalCount = appliedBefore.length;
 
-    // Rollback last migration (0013_categories)
+    // Rollback product tables while preserving categories.
     const rollbackRes = await rollbackMigration({ db: testDb, steps: 1, quiet: true });
-    expect(rollbackRes.rolledBack).toEqual(["0013_categories"]);
+    expect(rollbackRes.rolledBack).toEqual(["0014_product_drafts"]);
 
-    // Categories table dropped
-    expect(await checkTableExists(testDb, "categories")).toBe(false);
+    for (const table of ["products", "variants", "variant_attributes", "product_categories"]) expect(await checkTableExists(testDb, table)).toBe(false);
+    expect(await checkTableExists(testDb, "categories")).toBe(true);
 
     // Payment, shipping and store settings tables still exist
     expect(await checkTableExists(testDb, "payment_method_configs")).toBe(true);
@@ -111,7 +112,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     // Journal record removed
     const appliedAfter = await getAppliedMigrations(testDb);
     expect(appliedAfter.length).toBe(totalCount - 1);
-    expect(appliedAfter[appliedAfter.length - 1].tag).toBe("0012_payment_method_configs");
+    expect(appliedAfter[appliedAfter.length - 1].tag).toBe("0013_categories");
   }, 20000);
 
   it("repeated rollback to the same target is a safe no-op", async () => {
@@ -123,7 +124,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
       target: "0012_payment_method_configs",
       quiet: true,
     });
-    expect(res1.rolledBack).toEqual(["0013_categories"]);
+    expect(res1.rolledBack).toEqual(["0014_product_drafts", "0013_categories"]);
 
     // Repeating rollback targeting 0012_payment_method_configs
     const res2 = await rollbackMigration({
@@ -142,20 +143,21 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
 
     // Rollback 1 step
     await rollbackMigration({ db: testDb, steps: 1, quiet: true });
-    expect(await checkTableExists(testDb, "categories")).toBe(false);
+    expect(await checkTableExists(testDb, "products")).toBe(false);
 
     // Re-apply up
     const reapplyRes = await runMigrations({ db: testDb, quiet: true });
-    expect(reapplyRes.applied).toEqual(["0013_categories"]);
+    expect(reapplyRes.applied).toEqual(["0014_product_drafts"]);
 
     // Schema restored
     expect(await checkTableExists(testDb, "categories")).toBe(true);
+    expect(await checkTableExists(testDb, "products")).toBe(true);
     expect(await checkTableExists(testDb, "payment_method_configs")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_zones")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_methods")).toBe(true);
 
     const applied = await getAppliedMigrations(testDb);
-    expect(applied[applied.length - 1].tag).toBe("0013_categories");
+    expect(applied[applied.length - 1].tag).toBe("0014_product_drafts");
   }, 20000);
 
   it("rolls back multiple migrations in correct reverse order", async () => {
@@ -164,20 +166,21 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     // Rollback 2 steps
     const res = await rollbackMigration({ db: testDb, steps: 2, quiet: true });
     expect(res.rolledBack).toEqual([
+      "0014_product_drafts",
       "0013_categories",
-      "0012_payment_method_configs",
     ]);
 
-    // Both 0013 and 0012 dropped
+    // Products and categories are dropped; payment methods remain.
     expect(await checkTableExists(testDb, "categories")).toBe(false);
-    expect(await checkTableExists(testDb, "payment_method_configs")).toBe(false);
+    expect(await checkTableExists(testDb, "products")).toBe(false);
+    expect(await checkTableExists(testDb, "payment_method_configs")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_methods")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_zones")).toBe(true);
     expect(await checkTableExists(testDb, "store_settings")).toBe(true);
 
-    // 0011 is now the active head
+    // 0012 is now the active head
     const applied = await getAppliedMigrations(testDb);
-    expect(applied[applied.length - 1].tag).toBe("0011_shipping_zones_and_methods");
+    expect(applied[applied.length - 1].tag).toBe("0012_payment_method_configs");
   }, 20000);
 
   it("maintains schema and journal consistency if a rollback operation fails", async () => {
