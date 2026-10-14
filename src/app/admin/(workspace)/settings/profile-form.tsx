@@ -6,7 +6,7 @@ import {
   storeProfileUpdateInputSchema,
   type AdminStoreProfileResponse,
   type StoreProfileDto,
-} from "../../../modules/content/settings/contracts/store-profile";
+} from "../../../../modules/content/settings/contracts/store-profile";
 
 interface ProfileFormProps {
   initialData?: AdminStoreProfileResponse;

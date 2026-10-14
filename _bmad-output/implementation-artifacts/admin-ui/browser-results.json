@@ -1,0 +1,25 @@
+{
+  "environment": "Headless Microsoft Edge; actual components in isolated Vite harness; mocked API data and Next client navigation adapter; no live login or database writes",
+  "checks": [
+    "Desktop products: RTL, no document overflow",
+    "Desktop collapse/expand, keyboard focus and navigation/active state",
+    "Mobile products: RTL, no document overflow",
+    "Mobile native modal: Tab containment/background inert, Escape and close/backdrop restore opener focus, same/different route closes, desktop resize restores visible focus",
+    "320px /admin: RTL, no document overflow",
+    "320px /admin/catalog/products: RTL, no document overflow",
+    "320px /admin/catalog/categories: RTL, no document overflow",
+    "320px /admin/settings: RTL, no document overflow",
+    "320px /admin/settings?tab=shipping: RTL, no document overflow",
+    "320px /admin/security: RTL, no document overflow",
+    "Shipping table scrolls locally and can receive keyboard focus",
+    "Shipping add-zone modal usable at 320px; fixture save and CSRF preserved",
+    "Category create modal usable at 320px; fixture save and CSRF preserved",
+    "Product validation preserves inputs; successful fixture save retains CSRF/pricing/idempotency headers and minor-unit price",
+    "Profile form fixture save and CSRF preserved",
+    "Support navigation displays only dashboard and account security (UI role fixture, not API authorization proof)",
+    "Initial product load error and empty collection shown clearly",
+    "Category/shipping initial load errors do not display empty success invitations",
+    "Collapsed short desktop rail remains scrollable with visible keyboard tooltip"
+  ],
+  "errors": []
+}

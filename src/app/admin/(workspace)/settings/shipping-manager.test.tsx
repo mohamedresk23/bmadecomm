@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { ShippingSettingsManager } from "./shipping-manager";
-import type { ShippingZoneDto } from "../../../modules/content/settings/contracts/shipping";
+import type { ShippingZoneDto } from "../../../../modules/content/settings/contracts/shipping";
 
 afterEach(() => {
   cleanup();
@@ -62,6 +62,16 @@ const mockZones: ShippingZoneDto[] = [
 ];
 
 describe("ShippingSettingsManager Component", () => {
+  it.each(['unsuccessful', 'rejected'])('does not show empty invitations after an %s initial GET', async (failure) => {
+    const transport = failure === 'rejected' ? vi.fn().mockRejectedValue(new Error('network failed')) : vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal('fetch', transport);
+    render(<ShippingSettingsManager />);
+    const alert = await screen.findByRole('alert');
+    expect(alert.getAttribute('aria-live')).toBeNull();
+    expect(screen.getByRole('status').textContent).toContain('تعذر تحميل البيانات');
+    expect(screen.queryByText('لا توجد مناطق شحن مهيأة')).toBeNull();
+    expect(screen.queryByRole('button', { name: /إضافة أول منطقة شحن/ })).toBeNull();
+  });
   it("renders zones and their methods correctly after fetching", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

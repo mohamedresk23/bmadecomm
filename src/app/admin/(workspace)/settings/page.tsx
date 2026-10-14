@@ -1,5 +1,6 @@
+import { AdminPageHeader } from '../admin-page-header';
 import Link from "next/link";
-import { requireStaffPage } from "../../../modules/identity/infrastructure/staff-server";
+import { requireStaffPage } from "../../../../modules/identity/infrastructure/staff-server";
 import { StoreProfileForm } from "./profile-form";
 import { ShippingSettingsManager } from "./shipping-manager";
 
@@ -16,7 +17,7 @@ export default async function AdminSettingsPage({
 
   if (!context.roles.includes("owner")) {
     return (
-      <main className="min-h-screen bg-slate-50 p-6 sm:p-12 flex items-center justify-center" dir="rtl">
+      <section className="bg-slate-50 p-6 sm:p-12 flex items-center justify-center" dir="rtl">
         <div className="bg-white rounded-2xl border border-rose-200 p-6 sm:p-8 max-w-lg w-full shadow-sm text-center space-y-4">
           <div className="w-12 h-12 rounded-xl bg-rose-50 text-rose-700 flex items-center justify-center mx-auto text-xl font-bold border border-rose-200" aria-hidden="true">
             ⚠️
@@ -34,7 +35,7 @@ export default async function AdminSettingsPage({
             </Link>
           </div>
         </div>
-      </main>
+      </section>
     );
   }
 
@@ -73,41 +74,10 @@ export default async function AdminSettingsPage({
   ];
 
   return (
-    <main className="min-h-screen bg-slate-50 py-6 sm:py-8 px-3 sm:px-6 lg:px-8 text-slate-900" dir="rtl">
+    <section className="space-y-6" dir="rtl">
       <div className="max-w-5xl mx-auto space-y-6">
         
-        {/* Navigation Breadcrumbs & Top Header */}
-        <section className="space-y-3">
-          <nav aria-label="مسار التصفح" className="flex items-center gap-2 text-xs text-slate-600">
-            <Link href="/admin" className="hover:text-blue-700 hover:underline">
-              الإدارة
-            </Link>
-            <span aria-hidden="true">/</span>
-            <span className="text-blue-700 font-bold" aria-current="page">
-              الإعدادات التشغيلية
-            </span>
-          </nav>
-
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
-                إعدادات المتجر التشغيلية
-              </h1>
-              <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                {currentTab === "shipping"
-                  ? "إدارة مناطق التغطية الجغرافية في جمهورية مصر العربية وتكاليف وطرق التوصيل"
-                  : "إدارة الهوية التجارية، قنوات التواصل المعتمدة، المنطقة الزمنية والعملة الأساسية"}
-              </p>
-            </div>
-
-            <Link
-              href="/admin"
-              className="self-start sm:self-auto text-xs font-semibold text-slate-800 hover:text-blue-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-lg border border-slate-300 transition-colors focus-visible:ring-2 focus-visible:ring-blue-700 whitespace-nowrap"
-            >
-              ← العودة للوحة الإدارة
-            </Link>
-          </div>
-        </section>
+        <AdminPageHeader title="إعدادات المتجر التشغيلية" description={currentTab === "shipping" ? "إدارة مناطق التغطية وتكاليف وطرق التوصيل" : "إدارة الهوية التجارية، قنوات التواصل، المنطقة الزمنية والعملة الأساسية"} />
 
         {/* Settings Navigation Tabs */}
         <div className="border-b border-slate-300">
@@ -148,6 +118,6 @@ export default async function AdminSettingsPage({
         {currentTab === "profile" && <StoreProfileForm />}
         {currentTab === "shipping" && <ShippingSettingsManager />}
       </div>
-    </main>
+    </section>
   );
 }

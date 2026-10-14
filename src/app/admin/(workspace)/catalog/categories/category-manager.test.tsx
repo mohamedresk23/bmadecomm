@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { CategoryManager } from "./category-manager";
-import type { CategoryTreeNode } from "../../../../modules/catalog/categories/contracts/category";
+import type { CategoryTreeNode } from "../../../../../modules/catalog/categories/contracts/category";
 
 afterEach(() => {
   cleanup();
@@ -50,6 +50,15 @@ const mockCategories: CategoryTreeNode[] = [
 ];
 
 describe("CategoryManager Component", () => {
+  it.each(['unsuccessful', 'rejected'])('does not show empty invitations after an %s initial GET', async (failure) => {
+    const transport = failure === 'rejected' ? vi.fn().mockRejectedValue(new Error('network failed')) : vi.fn().mockResolvedValue({ ok: false, status: 500 });
+    vi.stubGlobal('fetch', transport);
+    render(<CategoryManager />);
+    await screen.findByRole('alert');
+    expect(screen.getByRole('status').textContent).toContain('تعذر تحميل البيانات');
+    expect(screen.queryByText(/لا توجد تصنيفات/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /إضافة أول تصنيف/ })).toBeNull();
+  });
   it("renders category hierarchy correctly after fetching", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

@@ -1,8 +1,8 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import { ApiClient, ClientApiError } from "../../../../shared/api/client";
-import { combinationKey, decimalToMinor, generateVariantMatrix, minorToDecimal, ProductDto } from "../../../../modules/catalog/products/contracts/product";
+import { ApiClient, ClientApiError } from "../../../../../shared/api/client";
+import { combinationKey, decimalToMinor, generateVariantMatrix, minorToDecimal, ProductDto } from "../../../../../modules/catalog/products/contracts/product";
 
 type FormVariant = { id?: string; sku: string; price: string; comparePrice: string; attributes: Record<string, string> };
 type Pricing = { currency: string; currencyScale: number; pricingRevision: string };
@@ -10,8 +10,8 @@ type Collection = { products: ProductDto[]; csrf: string; metadata: Pricing & { 
 const formSignature = (name: string, description: string, categoryIds: string[], rows: FormVariant[], dimensions: string) => JSON.stringify({ name, description, categoryIds, rows, dimensions });
 const emptyVariant = (): FormVariant => ({ sku: "", price: "", comparePrice: "", attributes: {} });
 const endpoint = "/api/v1/admin/catalog/products";
-const inputStyle = "block w-full rounded-lg border border-slate-300 bg-white p-2 focus-visible:outline-2 focus-visible:outline-blue-700";
-const buttonStyle = "rounded-lg bg-blue-700 px-4 py-2 text-white disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700";
+const inputStyle = "mt-1.5 block min-h-11 w-full rounded-lg border border-slate-300 bg-white p-2.5 focus-visible:outline-2 focus-visible:outline-blue-700";
+const buttonStyle = "min-h-11 rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700";
 function fieldLabel(field: string) {
   const labels: Record<string, string> = { name: "اسم المنتج", description: "الوصف", categoryIds: "التصنيفات", variants: "المتغيرات", pricingRevision: "سياق الأسعار", sku: "SKU", priceMinor: "السعر", comparePriceMinor: "سعر المقارنة", attributes: "الأبعاد", id: "المتغير" };
   const variant = /^variants\.(\d+)\.([^.]+)/.exec(field);
@@ -200,13 +200,16 @@ export function ProductManager() {
     </div>}
     {success && <p role="status" className="rounded-lg bg-green-50 p-4 text-green-800">{success}</p>}
     {collection && <>
-      <div className="rounded-xl border bg-white p-4"><h2 className="text-xl font-bold">المنتجات</h2>
-        {!collection.products.length && <p>لا توجد مسودات بعد.</p>}
-        <ul>{collection.products.map(product => <li key={product.id} className="flex items-center justify-between border-b py-3"><span>{product.name} — مسودة</span><button type="button" disabled={saving || loading} className={buttonStyle} onClick={() => void edit(product.id)}>تعديل {product.name}</button></li>)}</ul>
-        <button type="button" className={`${buttonStyle} mt-4`} disabled={saving || loading} onClick={reset}>منتج جديد</button>
+      <div className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div><h2 className="text-lg font-bold">المنتجات</h2><p className="mt-1 text-sm text-slate-600">{collection.products.length} مسودات — اختر منتجًا لتعديله أو أضف مسودة جديدة.</p></div>
+          <button type="button" className={buttonStyle} disabled={saving || loading} onClick={reset}>منتج جديد</button>
+        </div>
+        {!collection.products.length && <p role="status" className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">لا توجد مسودات بعد.</p>}
+        <ul className="divide-y divide-slate-200">{collection.products.map(product => <li key={product.id} className="admin-product-list-item flex items-center justify-between py-4"><span className="font-semibold">{product.name}<span className="ms-2 inline-block rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">مسودة</span></span><button type="button" disabled={saving || loading} className={buttonStyle} onClick={() => void edit(product.id)}>تعديل {product.name}</button></li>)}</ul>
       </div>
-      <form onSubmit={save} className="rounded-xl border bg-white p-5"><fieldset disabled={saving || loading} className="space-y-5">
-        <legend className="text-xl font-bold">{id ? "تعديل المسودة" : "إنشاء مسودة"}</legend>
+      <form onSubmit={save} className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs"><fieldset disabled={saving || loading} className="space-y-5">
+        <legend className="text-lg font-bold">{id ? "تعديل المسودة" : "إنشاء مسودة"}</legend>
         <label className="block">اسم المنتج<input aria-label="اسم المنتج" className={inputStyle} value={name} onChange={event => setName(event.target.value)} maxLength={200} {...accessible("name")} />{feedback("name")}</label>
         <label className="block">الوصف<textarea aria-label="الوصف" className={inputStyle} value={description} onChange={event => setDescription(event.target.value)} maxLength={5000} {...accessible("description")} />{feedback("description")}</label>
         <fieldset aria-describedby={fields.categoryIds ? "error-categoryIds" : undefined}><legend>التصنيفات</legend>
@@ -225,14 +228,14 @@ export function ProductManager() {
         </div>}
         <p id="price-help" className="text-sm text-slate-600">استخدم الأرقام 0–9 والنقطة العشرية . لإدخال الأسعار، مثل 19.99.</p>
         {dimensionText !== appliedDimensions && <p role="status">طبّق تغييرات الأبعاد بزر توليد المتغيرات قبل الحفظ.</p>}
-        <div className="space-y-4">{rows.map((row, index) => <fieldset key={row.id ?? combinationKey(row.attributes)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-3">
+        <div className="space-y-4">{rows.map((row, index) => <fieldset key={row.id ?? combinationKey(row.attributes)} className="grid gap-4 rounded-xl border border-slate-300 bg-slate-50 p-4 sm:grid-cols-3">
           <legend>متغير {index + 1}: {Object.entries(row.attributes).map(([name, value]) => `${name}: ${value}`).join(" / ") || "افتراضي"}</legend>
           <label>SKU {index + 1}<input aria-label={`SKU ${index + 1}`} dir="ltr" className={inputStyle} value={row.sku} onChange={event => changeRow(index, "sku", event.target.value)} {...accessible(`variants.${index}.sku`)} />{feedback(`variants.${index}.sku`)}</label>
           <label>السعر {index + 1}<input aria-label={`السعر ${index + 1}`} dir="ltr" inputMode="decimal" className={inputStyle} value={row.price} onChange={event => changeRow(index, "price", event.target.value)} {...accessible(`variants.${index}.priceMinor`)} />{feedback(`variants.${index}.priceMinor`)}</label>
           <label>سعر المقارنة {index + 1}<input aria-label={`سعر المقارنة ${index + 1}`} dir="ltr" inputMode="decimal" className={inputStyle} value={row.comparePrice} onChange={event => changeRow(index, "comparePrice", event.target.value)} {...accessible(`variants.${index}.comparePriceMinor`)} />{feedback(`variants.${index}.comparePriceMinor`)}</label>
           {feedback(`variants.${index}.attributes`)}{feedback(`variants.${index}.id`)}
         </fieldset>)}</div>
-        <button className={buttonStyle} type="submit" disabled={saving || loading || pricesNeedReview || dimensionText !== appliedDimensions}>{saving ? "جارٍ الحفظ…" : "حفظ المسودة"}</button>
+        <button className={`${buttonStyle} admin-primary-action w-full sm:w-auto`} type="submit" disabled={saving || loading || pricesNeedReview || dimensionText !== appliedDimensions}>{saving ? "جارٍ الحفظ…" : "حفظ المسودة"}</button>
       </fieldset></form>
     </>}
   </section>;
