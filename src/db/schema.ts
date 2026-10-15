@@ -313,6 +313,7 @@ export const products = pgTable("products", {
   name: text("name").notNull(),
   description: text("description"),
   status: text("status").notNull().default("draft"),
+  mediaRevision: bigint("media_revision", { mode: "bigint" }).notNull().default(sql`0`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [check("products_status_check", sql`${t.status} IN ('draft', 'published', 'archived')`)]);
@@ -345,4 +346,21 @@ export const productCategories = pgTable("product_categories", {
   productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
   categoryId: text("category_id").notNull().references(() => categories.id, { onDelete: "restrict" }),
 }, t => [primaryKey({ columns: [t.productId, t.categoryId] }), index("product_categories_category_idx").on(t.categoryId)]);
+
+export const productMedia = pgTable("product_media", {
+  id: text("id").primaryKey(),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  mediaId: text("media_id").notNull().references(() => media.id, { onDelete: "restrict" }),
+  altText: text("alt_text").notNull().default(""),
+  sortOrder: integer("sort_order").notNull(),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [
+  uniqueIndex("product_media_product_media_uq").on(t.productId, t.mediaId),
+  uniqueIndex("product_media_active_sort_order_uq").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
+  index("product_media_active_ordered_idx").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
+  index("product_media_reverse_media_idx").on(t.mediaId),
+  check("product_media_sort_order_nonnegative", sql`${t.sortOrder} >= 0`),
+]);
 

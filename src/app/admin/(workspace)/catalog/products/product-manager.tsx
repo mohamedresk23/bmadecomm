@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { ApiClient, ClientApiError } from "../../../../../shared/api/client";
 import { combinationKey, decimalToMinor, generateVariantMatrix, minorToDecimal, ProductDto } from "../../../../../modules/catalog/products/contracts/product";
+import { GalleryDto } from "../../../../../modules/catalog/products/contracts/gallery";
+import { ProductGallery } from "./product-gallery";
 
 type FormVariant = { id?: string; sku: string; price: string; comparePrice: string; attributes: Record<string, string> };
 type Pricing = { currency: string; currencyScale: number; pricingRevision: string };
@@ -62,6 +64,9 @@ export function ProductManager() {
   const [appliedDimensions, setAppliedDimensions] = useState("");
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [pricesNeedReview, setPricesNeedReview] = useState(false);
+  const [gallery, setGallery] = useState<GalleryDto | null>(null);
+  const [galleryLoading, setGalleryLoading] = useState(false);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
   const cleanForm = useRef(formSignature("", "", [], [emptyVariant()], ""));
   const pendingCreate = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState("");
@@ -117,6 +122,22 @@ export function ProductManager() {
     setDimensionText(text); setAppliedDimensions(text);
     cleanForm.current = formSignature(product.name, product.description ?? "", product.categoryIds, loadedRows, text);
   }
+  const loadGallery = useCallback(async (productId: string) => {
+    setGalleryLoading(true);
+    setGalleryError(null);
+    try {
+      const res = await ApiClient.fetch<{ success: true; gallery: GalleryDto }>(
+        `${endpoint}/${encodeURIComponent(productId)}/images`,
+        { cache: "no-store" }
+      );
+      setGallery(res.gallery);
+    } catch {
+      setGalleryError("تعذر تحميل صور المنتج. أعد المحاولة.");
+    } finally {
+      setGalleryLoading(false);
+    }
+  }, []);
+
   function canReplace() {
     return cleanForm.current === formSignature(name, description, categoryIds, rows, dimensionText) || window.confirm("لديك تغييرات غير محفوظة. هل تريد استبدالها؟");
   }
@@ -127,6 +148,7 @@ export function ProductManager() {
       const response = await ApiClient.fetch<{ product: ProductDto; csrf: string }>(`${endpoint}/${encodeURIComponent(productId)}`, { cache: "no-store" });
       fill(response.product);
       setCollection(current => current ? { ...current, csrf: response.csrf } : current);
+      void loadGallery(productId);
     } catch (err) { reportError(err); }
     finally { busy.current = false; setLoading(false); }
   }
@@ -134,6 +156,7 @@ export function ProductManager() {
     if (!canReplace()) return;
     setId(undefined); setName(""); setDescription(""); setCategoryIds([]); setRows([emptyVariant()]); setDimensionText(""); setError(""); setFields({}); setSuccess("");
     setAppliedDimensions(""); setPricing(collection?.metadata ?? null); setPricesNeedReview(false);
+    setGallery(null); setGalleryError(null); setGalleryLoading(false);
     cleanForm.current = formSignature("", "", [], [emptyVariant()], ""); pendingCreate.current = null;
   }
   function generate() {
@@ -237,6 +260,13 @@ export function ProductManager() {
         </fieldset>)}</div>
         <button className={`${buttonStyle} admin-primary-action w-full sm:w-auto`} type="submit" disabled={saving || loading || pricesNeedReview || dimensionText !== appliedDimensions}>{saving ? "جارٍ الحفظ…" : "حفظ المسودة"}</button>
       </fieldset></form>
+      <ProductGallery
+        productId={id}
+        gallery={gallery}
+        loading={galleryLoading}
+        error={galleryError}
+        onRetry={() => { if (id) void loadGallery(id); }}
+      />
     </>}
   </section>;
 }

@@ -3,6 +3,7 @@ import path from "node:path";
 
 export interface StorageAdapter {
   savePrivate(filename: string, buffer: Buffer): Promise<void>;
+  readPrivate(filename: string): Promise<Buffer>;
   publish(filename: string): Promise<string>;
   removePrivate(filename: string): Promise<void>;
   removePublic(filename: string): Promise<void>;
@@ -27,6 +28,11 @@ export class LocalFileSystemAdapter implements StorageAdapter {
   async recordOrphan(filename: string, location: "private" | "public" = "private") {
     await fs.mkdir(this.privateDir, { recursive: true });
     await fs.appendFile(path.join(this.privateDir, "orphan-recovery.jsonl"), JSON.stringify({ key: this.key(filename), location, time: new Date().toISOString() }) + "\n");
+  }
+
+  async readPrivate(filename: string): Promise<Buffer> {
+    const filePath = path.join(this.privateDir, this.key(filename));
+    return fs.readFile(filePath);
   }
 
   async savePrivate(filename: string, buffer: Buffer): Promise<void> {
