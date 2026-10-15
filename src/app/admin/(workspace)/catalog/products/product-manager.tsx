@@ -266,6 +266,8 @@ export function ProductManager() {
         loading={galleryLoading}
         error={galleryError}
         onRetry={() => { if (id) void loadGallery(id); }}
+        csrf={collection?.csrf}
+        onUploadSuccess={(updated) => setGallery(updated)}
       />
     </>}
   </section>;

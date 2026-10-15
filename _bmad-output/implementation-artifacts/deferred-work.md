@@ -37,3 +37,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-01-secure-media-preparation.md`
   summary: Define and implement serialized concurrent publication of the same pending media record.
   evidence: Baseline selected status, copied bytes and updated status without a lock. Current exclusive creation safely rejects a concurrent collision; sequential idempotency is verified, concurrent idempotency is not. A separate transaction/locking design and race test must settle concurrent publication behavior.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-03-upload-draft-image.md`
+  summary: Production Orphan Media Discovery and Automated Reaper
+  evidence: In E04-03-03, handled transaction aborts delete private staged files immediately via catch blocks, and un-deleted files are recorded in an append-only audit log (.local/orphans.log). However, an abrupt process crash (SIGKILL/power failure) prior to DB commit may leave unreferenced orphan files in private storage without application log execution. An administrative periodic background reaper is required for production readiness to reconcile storage bytes against the media table and purge stale unreferenced files (> 1 hour old).

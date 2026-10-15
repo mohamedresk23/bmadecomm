@@ -25,8 +25,9 @@ development_status:
   # See spec-e04-03-01-secure-media-preparation.md.
   # 02 implemented, verified on real PostgreSQL 18.6, walkthrough reviewed, and accepted by human approval.
   # See spec-e04-03-02-gallery-read-and-private-preview.md, verification-e04-03-02.md, and walkthrough-e04-03-02.md.
-  4-302-read-and-privately-preview-a-product-gallery: done
-  4-303-upload-a-draft-image-with-safe-retry: ready-for-dev
+  # 03 implemented, verified on real PostgreSQL 18.6 multi-process concurrency, ready for human review.
+  # See spec-e04-03-03-upload-draft-image.md, verification-e04-03-03.md, and walkthrough-e04-03-03.md.
+  4-303-upload-a-draft-image-with-safe-retry: review
   4-304-save-alt-text-and-show-publication-readiness: backlog
   4-305-reorder-the-gallery-accessibly: backlog
   4-306-map-images-to-variants-without-losing-assignments: backlog

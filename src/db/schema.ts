@@ -110,6 +110,12 @@ export const registrationRateBuckets = pgTable("registration_rate_buckets", {
   attempts: integer("attempts").notNull(),
 }, t => [check("registration_rate_attempts_positive", sql`${t.attempts} > 0`)]);
 
+export const uploadRateBuckets = pgTable("upload_rate_buckets", {
+  key: text("key").primaryKey(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  attempts: integer("attempts").notNull(),
+}, t => [check("upload_rate_attempts_positive", sql`${t.attempts} > 0`)]);
+
 // Staff identities are deliberately provisioned separately from customers.
 export const roles = pgTable("roles", {
   key: text("key").primaryKey(),

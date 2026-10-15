@@ -38,9 +38,20 @@ export const galleryResponseSchema = z.object({
   gallery: gallerySchema,
 }).strict();
 
+export const uploadImageResponseSchema = z.object({
+  success: z.literal(true),
+  image: galleryImageSchema,
+  gallery: gallerySchema,
+}).strict();
+
 export type GalleryImageDto = z.infer<typeof galleryImageSchema>;
-export type VariantImageAssignmentDto = z.infer<typeof variantImageAssignmentSchema>;
-export type PublicationIssueDto = z.infer<typeof publicationIssueSchema>;
 export type GalleryDto = z.infer<typeof gallerySchema>;
 export type GalleryResponse = z.infer<typeof galleryResponseSchema>;
+export type UploadImageResponse = z.infer<typeof uploadImageResponseSchema>;
+
+export const MAX_ACTIVE_IMAGES = 10;
+export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5,242,880 bytes
+export const MULTIPART_OVERHEAD = 64 * 1024;   // 65,536 bytes
+export const MAX_REQUEST_BODY = MAX_FILE_SIZE + MULTIPART_OVERHEAD; // 5,308,416 bytes
+export const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 

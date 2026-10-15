@@ -2,7 +2,7 @@
 title: 'E04-03-03: Upload a Draft image with safe retry'
 type: feature
 created: '2026-10-15'
-status: draft
+status: review
 route: dispatch
 story_id: E04-03-03
 epic_num: 4
@@ -20,6 +20,12 @@ adopted_decisions:
   idempotency_window:
     window_hours: 24
     post_expiry_policy: reject_do_not_delete_or_reuse
+  orphan_cleanup:
+    policy: option_a_immediate_cleanup_and_audit_logging
+    deferred_reaper: recorded_in_deferred_work_for_production_readiness
+approval:
+  date: '2026-10-15'
+  decision: approved_for_implementation
 context:
   - AGENTS.md
   - _bmad-output/implementation-artifacts/epic-4-context.md
@@ -48,7 +54,7 @@ context:
 2. **AC 2:** **Given** an unsaved product or a published/archived product, **When** attaching, **Then** unsaved UI requires saving first and non-Draft writes fail without mutation.
 3. **AC 3:** **Given** parallel identical keys/files or a lost response, **When** upload is retried, **Then** one attachment/audit commits; reused key with different file returns 409; replay rechecks live authorization.
 4. **AC 4:** **Given** concurrent uploads near the accepted capacity or exhausted adopted shared rate limit, **When** they execute, **Then** capacity is never exceeded and 429 provides Retry-After when applicable.
-5. **AC 5:** **Given** injected storage/DB/audit failure or duplicate staging, **When** attachment cannot commit, **Then** no false success/public file appears and new staged orphans are safely cleaned or recorded.
+5. **AC 5:** **Given** injected storage/DB/audit failure or duplicate staging, **When** attachment cannot commit, **Then** no false success or public file appears; staged orphans are deleted via immediate compensation, and if deletion fails, are recorded in `.local/orphans.log` for maintenance reconciliation without disclosing internal paths to clients. (Unrecorded orphans from abrupt hard process crashes prior to commit are documented under deferred maintenance reaper).
 
 ---
 
