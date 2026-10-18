@@ -41,3 +41,10 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-03-upload-draft-image.md`
   summary: Production Orphan Media Discovery and Automated Reaper
   evidence: In E04-03-03, handled transaction aborts delete private staged files immediately via catch blocks, and un-deleted files are recorded in an append-only audit log (.local/orphans.log). However, an abrupt process crash (SIGKILL/power failure) prior to DB commit may leave unreferenced orphan files in private storage without application log execution. An administrative periodic background reaper is required for production readiness to reconcile storage bytes against the media table and purge stale unreferenced files (> 1 hour old).
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-03-upload-review-remediation.md`
+  summary: Bound or cancel all upload database and pool waits on request deadline/abort.
+  evidence: Preexisting database reads and pool checkout do not implement per-request cancellation. Remediation bounds the newly relevant claim, renewal and commit-resolution lock/statement waits, but cancellation of every database operation needs a separate database-access policy.
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-03-upload-review-remediation.md`
+  summary: Refresh existing migration tests for migrations 0015 and 0016.
+  evidence: Full-suite verification found six assertions in unchanged migrate.test.ts and product-drafts-migration.test.ts still expecting 0014 as the latest migration or a one-step rollback target, although baseline already includes 0015_product_gallery and 0016_upload_rate_limit.

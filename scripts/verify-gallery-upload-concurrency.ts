@@ -10,6 +10,8 @@ import sharp from "sharp";
 import { drizzle } from "drizzle-orm/postgres-js";
 import * as schema from "../src/db/schema";
 import { localDatabaseUrl } from "./local-database-config";
+import { LocalFileSystemAdapter, storage } from "../src/lib/media/storage";
+import { canonicalJson } from "../src/shared/idempotency/execute";
 import { uploadGalleryImage } from "../src/modules/catalog/products/application/gallery-service";
 
 dotenv.config({ path: ".env.local", quiet: true });
@@ -43,6 +45,10 @@ async function runChildWorker(args: string[]) {
   const key = getArg("key");
   const imagePath = getArg("imagePath");
   const workerId = Number(getArg("workerId"));
+  const adapter = new LocalFileSystemAdapter(getArg("storageRoot"));
+  storage.savePrivate = adapter.savePrivate.bind(adapter);
+  storage.removePrivate = adapter.removePrivate.bind(adapter);
+  storage.recordOrphan = adapter.recordOrphan.bind(adapter);
 
   const url = localDatabaseUrl();
   const client = postgres(url, {
@@ -182,9 +188,9 @@ async function runParent() {
       function spawnChild(workerId: number, key: string): Promise<{ code: number | null; stdout: string; stderr: string; parsed: ChildResult | null }> {
         return new Promise((resolve) => {
           const proc = spawn(
-            "npx.cmd",
+            process.execPath,
             [
-              "tsx",
+              path.resolve("node_modules/tsx/dist/cli.mjs"),
               "scripts/verify-gallery-upload-concurrency.ts",
               "--child",
               "--schema",
@@ -197,10 +203,12 @@ async function runParent() {
               key,
               "--imagePath",
               imagePath,
+              "--storageRoot",
+              tempImageDir!,
               "--workerId",
               String(workerId),
             ],
-            { shell: true }
+            { windowsHide: true }
           );
 
           let stdout = "";
@@ -277,6 +285,80 @@ async function runParent() {
       assert.equal(bucket.attempts, 1, "Upload rate quota must be consumed exactly once (replay consumed 0)");
 
       console.log("[Test 1 PASS] Concurrency deduplication across independent Node processes verified successfully!");
+
+      // Exercise stale-claim compare-and-swap across independent processes.
+      const payloadHash = createHash("sha256").update(canonicalJson({fileBytesHash:createHash("sha256").update(imageBuffer).digest("hex"),filename:"test.png",mimeType:"image/png",size:imageBuffer.length})).digest("hex");
+      const staleKey = "stale_" + randomUUID();
+      await client`INSERT INTO operation_keys (id,actor,operation,key,payload_hash,created_at) VALUES (${randomUUID()},${`staff:${staffUserId}`},${`catalog.product.image.upload:${productId}`},${staleKey},${payloadHash},now()-interval '20 seconds')`;
+      const reclaimed = await Promise.all([spawnChild(5,staleKey),spawnChild(6,staleKey)]);
+      assert.ok(reclaimed.every(result=>result.parsed?.success),JSON.stringify(reclaimed));
+      assert.equal(reclaimed[0].parsed?.result?.image.id,reclaimed[1].parsed?.result?.image.id);
+      const [reclaimCount]=await client`SELECT count(*)::int AS count FROM product_media WHERE product_id=${productId}`;
+      assert.equal(reclaimCount.count,2,"Competing stale claims attach exactly once");
+      const [reclaimBucket]=await client`SELECT attempts FROM upload_rate_buckets WHERE key=${rateKey}`;
+      assert.equal(reclaimBucket.attempts,2,"Only winning reclaim consumes quota");
+      // Remove reclaimed attachment while retaining its private media/history.
+      await client`UPDATE product_media SET removed_at=now(),sort_order=999 WHERE id=${reclaimed[0].parsed!.result!.image.id}`;
+      console.log("[Reclaim PASS] Competing stale claims deduplicate; removed high position retained for append regression.");
+
+      // Lose the response while an independent transaction still owns both
+      // product/key locks; the recovery probe must wait or time out safely.
+      const database = drizzle(client, { schema });
+      const adapter = new LocalFileSystemAdapter(tempImageDir!);
+      storage.savePrivate = adapter.savePrivate.bind(adapter);
+      storage.removePrivate = adapter.removePrivate.bind(adapter);
+      storage.recordOrphan = adapter.recordOrphan.bind(adapter);
+      for (const timeout of [false, true]) {
+        const heldProduct = "held_" + randomUUID();
+        await client`INSERT INTO products (id,name,status) VALUES (${heldProduct},'Held commit fixture','draft')`;
+        let release!: () => void;
+        let entered!: () => void;
+        let loseResponse!: (error: Error) => void;
+        let staged = false;
+        let injected = false;
+        let filename = "";
+        const enteredGate = new Promise<void>(resolve => { entered = resolve; });
+        const releaseGate = new Promise<void>(resolve => { release = resolve; });
+        const lostResponse = new Promise<never>((_, reject) => { loseResponse = reject; });
+        let original: Promise<unknown> = Promise.resolve();
+        storage.savePrivate = async (key, bytes, metadata) => { await adapter.savePrivate(key, bytes, metadata); filename = key; staged = true; };
+        const context = new Proxy(database, { get(target, property, receiver) {
+          if (property !== "transaction") return Reflect.get(target, property, receiver);
+          return async (callback: Parameters<typeof database.transaction>[0]) => {
+            if (injected) return database.transaction(callback);
+            const pending = database.transaction(async tx => {
+              const result = await callback(tx);
+              if (staged && !injected) { injected = true; entered(); loseResponse(new Error("COMMIT response lost while transaction unresolved")); await releaseGate; }
+              return result;
+            });
+            original = pending;
+            return Promise.race([pending, lostResponse]);
+          };
+        }});
+        const input = { productId: heldProduct, staffUserId, requestId: "held-recovery-" + timeout, idempotencyKey: randomUUID(), file: { name: "test.png", type: "image/png", buffer: imageBuffer } };
+        const upload = uploadGalleryImage(context, input).then(result => ({ result, error: null }), error => ({ result: null, error }));
+        await enteredGate;
+        assert.ok((await adapter.readPrivate(filename)).length > 0, "Bytes survive while original transaction owns locks");
+        if (timeout) {
+          const unresolved = await upload;
+          assert.equal(unresolved.error?.statusCode, 503, "Bounded recovery returns safe failure on held lock");
+          assert.ok((await adapter.readPrivate(filename)).length > 0, "Recovery timeout preserves bytes");
+          const [lease] = await client`SELECT id FROM operation_keys WHERE key=${input.idempotencyKey}`;
+          assert.ok(lease, "Recovery timeout preserves reservation");
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 100));
+          assert.ok((await adapter.readPrivate(filename)).length > 0, "Recovery cannot delete bytes before original resolves");
+        }
+        release(); await original;
+        const outcome = await upload;
+        if (!timeout) assert.equal(outcome.result?.success, true, "Recovery waits for original commit and returns result");
+        assert.ok((await adapter.readPrivate(filename)).length > 0, "Committed bytes remain readable");
+        const replay = await uploadGalleryImage(database, input);
+        assert.equal(replay.success, true);
+        const [counts] = await client`SELECT count(*)::int AS count FROM product_media WHERE product_id=${heldProduct}`;
+        assert.equal(counts.count, 1, "Held original/recovery/replay attach exactly once");
+      }
+      console.log("[Recovery PASS] Independent held transaction: waiting resolution and lock-timeout preserve committed bytes and lease.");
 
       // ---------------------------------------------------------
       // TEST 2: Slot 10 Capacity Race

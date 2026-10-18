@@ -140,3 +140,30 @@ Exit Code: 0
 **Verdict:** **PASSED**  
 The implementation satisfies all architectural, security, and acceptance criteria for Story `E04-03-03`. The story is placed in `review` status awaiting human sign-off.
 
+
+
+## Upload review remediation evidence - 2026-10-18
+
+Implementation follows spec-e04-03-03-upload-review-remediation.md. Story remains review; browser/human acceptance is outstanding.
+
+- Upload API/service focused suite: 49 tests passed. Includes lost COMMIT response returning the committed result, unavailable independent locking probe preserving media and lease, confirmed audit rollback cleanup, superseded-token fencing, immediate active-payload mismatch, disappeared lease reacquisition, abort without duplicate quota, static-only validation/MIME mismatch, expired incomplete key, revoked/expired session replay, Draft replay, storage same-key retry, hostile Origin, correlation IDs, removed positions, and precise rate rollover/Retry-After. Final delayed-waiter regression verifies a newly won lease receives its acquisition timestamp and a following duplicate cannot immediately reclaim it.
+- ProductManager: 11 tests passed, including first-save gallery load, CSRF forwarding, upload gallery callback, and retaining unrelated local form edits. The upload response in this component wiring fixture is simulated; API byte processing is verified separately.
+- ProductGallery, FIFO processor gate and storage focused tests passed; post-lint-fix UI/gate rerun: 2 files, 13 tests. FIFO gate final suite: 3 tests passed; verifies four actual children, two ordered waiters, abort removal, next child starting only after close, fifteen-second queue expiry, and safe synchronous spawn failure with slot release. Existing processor tests retain actual-child deadline/abort verification.
+- Configurable multipart request test covers catalog fifteen-second timeout and custom byte bound while generic ten-second behavior remains covered.
+- Extended real PostgreSQL harness passed exit 0 with independently spawned processes: identical-key deduplication, competing stale lease reclaim with one quota consumption, retained removed position 999 ignored on append, and slot-ten capacity race. Final run used isolated schema gallery_concurrency_9a841f19686df0989242829b7463803a and temporary per-run media storage; schema and temporary files were removed. Three known files from the earlier harness run were individually removed after confirming matching filenames, timestamps and 132-byte sizes.
+
+Lease tokens now carry an opaque UUID plus acquisition epoch milliseconds. Original created_at remains unchanged across reclaim so the 24-hour nonreusable-key policy is preserved. Legacy UUID tokens use created_at for lease age. No schema migration is required.
+
+Manual checks still required: create and first-save a Draft then upload a valid image; switch products during an upload and verify no old result enters the selected gallery; submit an animated/oversized image and verify accurate feedback without permanent-error retry; simulate transient failure and retry the same file/key. Verify private thumbnails/reload and keyboard/screen-reader behavior. Automated component tests do not establish browser acceptance.
+
+Parent verification before review patches: 130 related tests passed across fourteen files; TypeScript passed; ESLint passed with one existing Upload.tsx image warning. Webpack production build (`npm.cmd run build -- --webpack`) passed, including TypeScript and static page generation. Default Turbopack build failed while reading an inaccessible old BMAD render directory; its earlier sandbox attempt also could not fetch Google Fonts.
+
+The full default Vitest run completed with 523 passed, eight failed, one skipped and one todo (72 files). Six failures are unchanged baseline migration expectations for 0014 despite existing 0015/0016. One provision-owner test hit sandbox EPERM removing its temporary directory; its isolated escalated rerun passed. One processor gate test ran against the earlier in-flight source; the final three-test gate and fourteen-file rerun passed. This is not a claim that the full repository suite is green. Review patch verification is recorded below when complete.
+
+### Final review patch results
+
+- Three edited-module suites: 68 tests passed, including healthy-worker lease renewal, transient 409 same-key retry, unavailable-gallery retry disabling, generic 422 fallback and independent recovery-log failures. Final API rerun after the post-lock expiry/hash guards: 50 tests passed.
+- Real PostgreSQL held-original fixture passed: recovery waits while the original transaction owns its key lock, preserves bytes before resolution, and returns the committed result after release. Its timeout variant returns 503 with bytes/reservation intact; committing the original and retrying returns the same single attachment. Final schema `gallery_concurrency_ec7947a6a5ba8ba03d835540a1544ddb` and temporary storage were cleaned.
+- Final full run `npm.cmd test -- --pool=threads`: 534 passed, seven failed, one skipped, one todo, 72 files, 243.12 seconds. The failures are the six previously identified baseline migration assertions plus the sandbox-only provision-owner temporary-directory removal failure. No upload/remediation test failed. The isolated escalated provision-owner rerun passed.
+- Typecheck passed, ESLint passed with one existing Upload.tsx image warning, and the final Webpack production build passed after review patches. Default Turbopack's inaccessible old BMAD directory remains an environment/build limitation.
+- All review patch groups are resolved. General database/pool cancellation and old migration-test expectations are recorded as deferred work. Story remains review; the manual checks above still require human/browser acceptance.

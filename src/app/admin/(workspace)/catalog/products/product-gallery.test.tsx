@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { cleanup, render, screen, fireEvent } from "@testing-library/react";
+import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProductGallery } from "./product-gallery";
 import { GalleryDto } from "../../../../../modules/catalog/products/contracts/gallery";
@@ -217,4 +217,39 @@ describe("ProductGallery UI component", () => {
     expect(capturedKeys).toHaveLength(2);
     expect(capturedKeys[0]).toBe(capturedKeys[1]);
   });
+});
+
+
+it("renders policy validation accurately without permanent-error retry and sends CSRF", async () => {
+  const fetcher=vi.fn().mockResolvedValue({ok:false,status:422,json:async()=>({error:{message:"Static images required"}})});vi.stubGlobal("fetch",fetcher);
+  try {
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={()=>{}} csrf="real-csrf" />);
+    fireEvent.change(screen.getByTestId("gallery-upload-input"),{target:{files:[new File(["x"],"x.png",{type:"image/png"})]}});fireEvent.click(screen.getByTestId("gallery-upload-button"));
+    await waitFor(()=>expect(screen.getByText("Static images required")).toBeTruthy());expect(screen.queryByTestId("gallery-upload-retry")).toBeNull();
+    expect(fetcher.mock.calls[0][1].headers["X-CSRF-Token"]).toBe("real-csrf");
+  } finally {vi.unstubAllGlobals();}
+});
+it("disables unavailable galleries and ignores an old product upload result",async()=>{
+  let resolve!: (value:unknown)=>void;const fetcher=vi.fn(()=>new Promise(r=>{resolve=r;}));vi.stubGlobal("fetch",fetcher);const success=vi.fn();
+  try {
+    const view=render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={()=>{}} onUploadSuccess={success}/>);
+    fireEvent.change(screen.getByTestId("gallery-upload-input"),{target:{files:[new File(["x"],"x.png")]}});fireEvent.click(screen.getByTestId("gallery-upload-button"));
+    view.rerender(<ProductGallery productId="other" gallery={null} loading={true} error={null} onRetry={()=>{}} onUploadSuccess={success}/>);
+    expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(true);
+    resolve({ok:true,json:async()=>({gallery:mockGallery})});await waitFor(()=>expect(fetcher).toHaveBeenCalled());await Promise.resolve();expect(success).not.toHaveBeenCalled();
+  } finally {vi.unstubAllGlobals();}
+});
+
+
+it("retains the same key for in-progress contention and disables retry while gallery unavailable",async()=>{
+  const fetcher=vi.fn().mockResolvedValue({ok:false,status:409,json:async()=>({error:{message:"An upload with this idempotency key is already in progress"}})});vi.stubGlobal("fetch",fetcher);
+  try{const props={productId:"prd_123",gallery:mockGallery,loading:false,error:null,onRetry:()=>{}};const view=render(<ProductGallery {...props}/>);
+    fireEvent.change(screen.getByTestId("gallery-upload-input"),{target:{files:[new File(["x"],"x.png")]}});fireEvent.click(screen.getByTestId("gallery-upload-button"));
+    await waitFor(()=>expect(screen.getByTestId("gallery-upload-retry")).toBeTruthy());const key=fetcher.mock.calls[0][1].headers["Idempotency-Key"];
+    view.rerender(<ProductGallery {...props} loading={true}/>);expect((screen.getByTestId("gallery-upload-retry") as HTMLButtonElement).disabled).toBe(true);
+    view.rerender(<ProductGallery {...props}/>);fireEvent.click(screen.getByTestId("gallery-upload-retry"));await waitFor(()=>expect(fetcher).toHaveBeenCalledTimes(2));expect(fetcher.mock.calls[1][1].headers["Idempotency-Key"]).toBe(key);
+  }finally{vi.unstubAllGlobals();}
+});
+it("uses a generic validation fallback for message-less 422",async()=>{
+  vi.stubGlobal("fetch",vi.fn().mockResolvedValue({ok:false,status:422,json:async()=>({error:{}})}));try{render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={()=>{}}/>);fireEvent.change(screen.getByTestId("gallery-upload-input"),{target:{files:[new File(["x"],"x.png")]}});fireEvent.click(screen.getByTestId("gallery-upload-button"));await screen.findByText("Image validation failed. Choose a valid static image.");expect(screen.queryByTestId("gallery-upload-retry")).toBeNull();}finally{vi.unstubAllGlobals();}
 });

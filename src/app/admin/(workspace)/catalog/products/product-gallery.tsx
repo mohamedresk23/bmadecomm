@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { GalleryDto, GalleryImageDto } from "../../../../../modules/catalog/products/contracts/gallery";
 
 interface ProductGalleryProps {
@@ -13,7 +13,11 @@ interface ProductGalleryProps {
   onUploadSuccess?: (gallery: GalleryDto) => void;
 }
 
-export function ProductGallery({
+export function ProductGallery(props: ProductGalleryProps) {
+  return <ProductGalleryState key={props.productId ?? "unsaved"} {...props} />;
+}
+
+function ProductGalleryState({
   productId,
   gallery,
   loading,
@@ -28,6 +32,9 @@ export function ProductGallery({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState<string | null>(null);
+  const [retryable, setRetryable] = useState(false);
+  const uploadController = useRef<AbortController | null>(null);
+  useLayoutEffect(() => () => { uploadController.current?.abort(); }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleImageError = (imageId: string) => {
@@ -52,7 +59,10 @@ export function ProductGallery({
   };
 
   const executeUpload = async (fileToUpload: File, keyToUse: string) => {
-    if (!productId) return;
+    if (!productId || loading || error || gallery?.productId !== productId) return;
+    const controller = new AbortController();
+    uploadController.current = controller;
+    let canRetry = true;
     setUploading(true);
     setUploadError(null);
 
@@ -71,9 +81,12 @@ export function ProductGallery({
         method: "POST",
         headers,
         body: formData,
+        signal: controller.signal,
       });
 
+      if (controller.signal.aborted) return;
       if (!res.ok) {
+        canRetry = res.status >= 500 || res.status === 408 || res.status === 429;
         const data = await res.json().catch(() => null);
         if (res.status === 429) {
           const retryAfter = res.headers.get("Retry-After");
@@ -88,15 +101,17 @@ export function ProductGallery({
           throw new Error("صيغة الملف غير مدعومة. الصيغ المسموحة: JPEG و PNG و WebP.");
         }
         if (res.status === 422) {
-          throw new Error("لا يمكن إضافة أكثر من 10 صور للمنتج.");
+          throw new Error(data?.error?.message || "Image validation failed. Choose a valid static image.");
         }
         if (res.status === 409) {
+          canRetry = /already in progress|unable to acquire idempotency reservation/i.test(data?.error?.message ?? "");
           throw new Error(data?.error?.message || "تعارض في حالة المنتج أو مفتاح العملية.");
         }
         throw new Error(data?.error?.message || `فشل رفع الصورة (${res.status})`);
       }
 
       const data = await res.json();
+      if (controller.signal.aborted) return;
       setSelectedFile(null);
       setIdempotencyKey(null);
       if (fileInputRef.current) {
@@ -109,10 +124,13 @@ export function ProductGallery({
         onRetry();
       }
     } catch (err: unknown) {
+      if (controller.signal.aborted) return;
+      setRetryable(canRetry);
+      if (!canRetry) setIdempotencyKey(null);
       const message = err instanceof Error ? err.message : "حدث خطأ غير متوقع أثناء الرفع";
       setUploadError(message);
     } finally {
-      setUploading(false);
+      if (!controller.signal.aborted) setUploading(false);
     }
   };
 
@@ -167,14 +185,14 @@ export function ProductGallery({
               type="file"
               accept="image/jpeg,image/png,image/webp"
               onChange={handleFileChange}
-              disabled={uploading}
+              disabled={uploading || loading || !!error || gallery?.productId !== productId}
               className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
               aria-label="اختر صورة للمنتج"
               data-testid="gallery-upload-input"
             />
             <button
               type="submit"
-              disabled={!selectedFile || uploading}
+              disabled={!selectedFile || !idempotencyKey || uploading || loading || !!error || gallery?.productId !== productId}
               className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
               data-testid="gallery-upload-button"
             >
@@ -191,12 +209,12 @@ export function ProductGallery({
           data-testid="gallery-upload-error"
         >
           <p>{uploadError}</p>
-          {selectedFile && (
+          {selectedFile && retryable && (
             <button
               type="button"
               className="mt-2 text-xs font-semibold underline"
               onClick={handleRetryUpload}
-              disabled={uploading}
+              disabled={uploading || loading || !!error || gallery?.productId !== productId}
               data-testid="gallery-upload-retry"
             >
               إعادة المحاولة

@@ -24,6 +24,9 @@ import { issueStaffSession } from "../../../../../../../../modules/identity/infr
 import { STAFF_SESSION_POLICY, staffConfig } from "../../../../../../../../modules/identity/infrastructure/staff-config";
 import { encryptStaffSecret, newStaffSeed, sessionCsrf } from "../../../../../../../../modules/identity/infrastructure/staff-crypto";
 import { LocalFileSystemAdapter, storage } from "../../../../../../../../lib/media/storage";
+import { uploadGalleryImage } from "../../../../../../../../modules/catalog/products/application/gallery-service";
+import { throttleStaffUpload } from "../../../../../../../../modules/catalog/products/infrastructure/upload-rate-limit";
+import * as imageProcessor from "../../../../../../../../lib/media/image-process";
 import * as auditModule from "../../../../../../../../shared/authz/audit";
 import { GET as getGallery, POST as postImage } from "./route";
 import { GET as getPreview } from "./[imageId]/content/route";
@@ -44,9 +47,9 @@ beforeEach(async () => {
   isolated.root = await fs.mkdtemp(path.join(os.tmpdir(), "gallery-test-"));
   isolated.adapter = new LocalFileSystemAdapter(isolated.root);
   vi.spyOn(storage, "readPrivate").mockImplementation((filename: string) => isolated.adapter.readPrivate(filename));
-  vi.spyOn(storage, "savePrivate").mockImplementation((filename: string, buf: Buffer) => isolated.adapter.savePrivate(filename, buf));
+  vi.spyOn(storage, "savePrivate").mockImplementation((filename: string, buf: Buffer, metadata) => isolated.adapter.savePrivate(filename, buf, metadata));
   vi.spyOn(storage, "removePrivate").mockImplementation((filename: string) => isolated.adapter.removePrivate(filename));
-  vi.spyOn(storage, "recordOrphan").mockImplementation((filename: string, loc) => isolated.adapter.recordOrphan(filename, loc));
+  vi.spyOn(storage, "recordOrphan").mockImplementation((filename: string, loc, metadata) => isolated.adapter.recordOrphan(filename, loc, metadata));
   vi.spyOn(storage, "publish").mockImplementation((filename: string) => isolated.adapter.publish(filename));
 });
 
@@ -689,3 +692,162 @@ describe("POST /api/v1/admin/catalog/products/[id]/images - Upload draft image",
   });
 });
 
+
+
+describe("upload remediation", () => {
+  it.each([{name:"wrong.jpg",type:"image/png"},{name:"test.png",type:"image/jpeg"}])("rejects MIME/extension mismatch $name $type", async ({name,type}) => {
+    const {token,csrf}=await staff(); const id=await createProductFixture();
+    const response=await postImage(makeUploadRequest(id,token,csrf,randomUUID(),await createValidImageBytes(),name,type),{params:Promise.resolve({id})});
+    expect(response.status).toBe(415); expect(storage.savePrivate).not.toHaveBeenCalled();
+  });
+  it("rejects hostile Origin before processing and shares fallback correlation on errors", async () => {
+    const {token,csrf}=await staff(); const id=await createProductFixture();
+    const req=makeUploadRequest(id,token,csrf,randomUUID(),await createValidImageBytes()); req.headers.set("Origin","https://hostile.example");
+    const response=await postImage(req,{params:Promise.resolve({id})});
+    expect(response.status).toBe(403); expect(storage.savePrivate).not.toHaveBeenCalled();
+    expect((await response.json()).error.request_id).toBe(response.headers.get("x-correlation-id"));
+  });
+  it("returns safe storage failure and allows same-key retry", async () => {
+    const {token,csrf}=await staff(); const id=await createProductFixture(); const bytes=await createValidImageBytes(); const key=randomUUID();
+    vi.mocked(storage.savePrivate).mockRejectedValueOnce(new Error("private disk path must remain secret"));
+    const failed=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});
+    expect(failed.status).toBe(503); expect((await failed.json()).error.code).toBe("MEDIA_UNAVAILABLE");
+    const retried=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});
+    expect(retried.status).toBe(201); createdMedia.push((await retried.json()).image.mediaId);
+  });
+  it("rechecks Draft and live authorization on completed replay", async () => {
+    const {token,csrf,userId}=await staff(); const id=await createProductFixture(); const bytes=await createValidImageBytes(); const key=randomUUID();
+    const send=()=>postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});
+    const first=await send(); expect(first.status).toBe(201); createdMedia.push((await first.json()).image.mediaId);
+    await db.update(products).set({status:"published"}).where(eq(products.id,id)); expect((await send()).status).toBe(409);
+    await db.update(staffAccounts).set({enabled:false}).where(eq(staffAccounts.userId,userId)); expect([401,403]).toContain((await send()).status);
+  });
+  it("ignores removed high positions when appending", async () => {
+    const {token,csrf}=await staff(); const id=await createProductFixture(); const mid=await createMediaFixture(randomUUID()+".png");
+    await db.insert(productMedia).values({id:randomUUID(),productId:id,mediaId:mid,sortOrder:999,removedAt:new Date()});
+    const response=await postImage(makeUploadRequest(id,token,csrf,randomUUID(),await createValidImageBytes()),{params:Promise.resolve({id})});
+    expect(response.status).toBe(201); const body=await response.json(); createdMedia.push(body.image.mediaId); expect(body.image.position).toBe(0);
+  });
+});
+
+
+describe("ambiguous transaction completion", () => {
+  it.each([false,true])("preserves private bytes after commit response loss (probe failure=%s)", async probeFails => {
+    const {token,csrf}=await staff(); const id=await createProductFixture(); const bytes=await createValidImageBytes(); const key=randomUUID();
+    const transaction=db.transaction.bind(db) as (callback: Parameters<typeof db.transaction>[0]) => Promise<unknown>; let injected=false; let wrote=false;
+    vi.mocked(storage.savePrivate).mockImplementation(async (filename, bytes, metadata)=>{await isolated.adapter.savePrivate(filename,bytes,metadata);wrote=true;});
+    const spy=vi.spyOn(db,"transaction").mockImplementation(async (...args: Parameters<typeof db.transaction>) => {
+      if (injected && probeFails) throw new Error("independent probe unavailable");
+      const result=await transaction(args[0]);
+      if (wrote && !injected) {injected=true;throw new Error("COMMIT response lost");}
+      return result;
+    });
+    const response=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});
+    spy.mockRestore();
+    expect(response.status).toBe(probeFails?503:201); expect(storage.removePrivate).not.toHaveBeenCalled();
+    const rows=await db.select().from(productMedia).where(eq(productMedia.productId,id)); expect(rows).toHaveLength(1); createdMedia.push(rows[0].mediaId);
+    const [saved]=await db.select().from(media).where(eq(media.id,rows[0].mediaId)); expect((await isolated.adapter.readPrivate(saved.filename)).length).toBeGreaterThan(0);
+    const retry=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})}); expect(retry.status).toBe(201);
+    expect((await db.select().from(productMedia).where(eq(productMedia.productId,id)))).toHaveLength(1);
+  });
+});
+
+
+describe("lease ownership and cancellation", () => {
+  it("fences a superseded worker before staging and protects its replacement", async () => {
+    const {token,csrf}=await staff(); const id=await createProductFixture(); const bytes=await createValidImageBytes(); const key=randomUUID();
+    let resume!: (bytes:Buffer)=>void; let started!: ()=>void; const entered=new Promise<void>(resolve=>{started=resolve;});
+    vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{started(); return new Promise<Buffer>(resolve=>{resume=resolve;});});
+    const pending=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})}); await entered;
+    const [original]=await db.select().from(operationKeys).where(eq(operationKeys.key,key));
+    const replacement=randomUUID()+":"+Date.now(); await db.update(operationKeys).set({id:replacement}).where(eq(operationKeys.id,original.id));
+    resume(bytes); const response=await pending; expect(response.status).toBe(409); expect(storage.savePrivate).not.toHaveBeenCalled();
+    const [retained]=await db.select().from(operationKeys).where(eq(operationKeys.key,key)); expect(retained.id).toBe(replacement);
+    expect(await db.select().from(productMedia).where(eq(productMedia.productId,id))).toHaveLength(0);
+  });
+  it("rejects different payload immediately while the matching owner processes", async () => {
+    const {token,csrf}=await staff(); const id=await createProductFixture(); const bytes=await createValidImageBytes(); const key=randomUUID();
+    let resume!: (bytes:Buffer)=>void; let started!: ()=>void; const entered=new Promise<void>(resolve=>{started=resolve;});
+    vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{started();return new Promise<Buffer>(resolve=>{resume=resolve;});});
+    const owner=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})}); await entered;
+    const mismatch=await postImage(makeUploadRequest(id,token,csrf,key,await createValidImageBytes(11)),{params:Promise.resolve({id})});
+    expect(mismatch.status).toBe(409); resume(bytes); const response=await owner; expect(response.status).toBe(201); createdMedia.push((await response.json()).image.mediaId);
+  });
+});
+
+
+it("rejects animated PNG without staging",async()=>{
+  const {token,csrf}=await staff();const id=await createProductFixture();const png=await createValidImageBytes();const chunk=Buffer.alloc(12);chunk.write("acTL",4,"ascii");
+  const bytes=Buffer.concat([png.subarray(0,8),chunk,png.subarray(8)]);
+  const response=await postImage(makeUploadRequest(id,token,csrf,randomUUID(),bytes),{params:Promise.resolve({id})});expect(response.status).toBe(422);expect(storage.savePrivate).not.toHaveBeenCalled();
+});
+it("cancels duplicate waiting promptly without consuming quota",async()=>{
+  const {token,csrf,userId}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();
+  let resume!:(bytes:Buffer)=>void;let started!:()=>void;const entered=new Promise<void>(r=>{started=r;});
+  vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{started();return new Promise<Buffer>(r=>{resume=r;});});
+  const owner=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await entered;
+  const controller=new AbortController();const waiter=postImage(new Request(makeUploadRequest(id,token,csrf,key,bytes),{signal:controller.signal}),{params:Promise.resolve({id})});
+  await new Promise(r=>setTimeout(r,50));controller.abort();expect((await waiter).status).toBe(400);resume(bytes);const saved=await owner;createdMedia.push((await saved.json()).image.mediaId);
+  const [bucket]=await db.select().from(uploadRateBuckets).where(eq(uploadRateBuckets.key,createHash("sha256").update(JSON.stringify(["staff_upload",userId])).digest("hex")));expect(bucket.attempts).toBe(1);
+});
+it("reacquires a disappeared lease after the owner fails",async()=>{
+  const {token,csrf}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();
+  let fail!:(error:Error)=>void;let started!:()=>void;const entered=new Promise<void>(r=>{started=r;});
+  vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{started();return new Promise<Buffer>((_,reject)=>{fail=reject;});});
+  const owner=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await entered;
+  const waiter=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await new Promise(r=>setTimeout(r,40));fail(new Error("worker failed"));expect((await owner).status).toBe(500);
+  const saved=await waiter;expect(saved.status).toBe(201);createdMedia.push((await saved.json()).image.mediaId);
+});
+
+
+it("computes precise Retry-After and resets quota at window rollover",async()=>{
+  const userId=randomUUID();const start=1800000000000;const now=new Date(start+123000);for(let i=0;i<20;i++)expect(await throttleStaffUpload(db,userId,now)).toBe(0);
+  expect(await throttleStaffUpload(db,userId,now)).toBe(477);expect(await throttleStaffUpload(db,userId,new Date(start+600000))).toBe(0);
+});
+it("rejects expired incomplete leases without reclaim or quota",async()=>{
+  const {token,csrf}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();
+  const first=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});const saved=await first.json();createdMedia.push(saved.image.mediaId);
+  const [existing]=await db.select().from(operationKeys).where(eq(operationKeys.key,key));
+  await db.update(operationKeys).set({completedAt:null,result:null,createdAt:new Date(Date.now()-86400001)}).where(eq(operationKeys.id,existing.id));
+  const response=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});expect(response.status).toBe(409);
+  expect((await db.select().from(operationKeys).where(eq(operationKeys.key,key)))[0].id).toBe(existing.id);
+});
+
+
+it.each(["revoked","expired"])("rejects %s session on completed replay",async state=>{
+  const {token,csrf,userId}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();
+  const first=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});createdMedia.push((await first.json()).image.mediaId);
+  await db.update(sessions).set(state==="revoked"?{revokedAt:new Date()}:{expiresAt:new Date(Date.now()-1000)}).where(eq(sessions.userId,userId));
+  const response=await postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});expect(response.status).toBe(401);
+});
+
+
+it.each([{id:" ",key:"valid"},{id:"product\tidentifier",key:"valid"},{id:"valid",key:"key\tcontrol"}])("rejects invalid identifiers %j",async({id,key})=>{
+  const {token,csrf}=await staff();const response=await postImage(makeUploadRequest(id,token,csrf,key,await createValidImageBytes()),{params:Promise.resolve({id})});expect(response.status).toBe(400);expect(storage.savePrivate).not.toHaveBeenCalled();
+});
+it("validates NUL identifiers at the service boundary",async()=>{
+  await expect(uploadGalleryImage(db,{productId:"product\0id",staffUserId:"staff",requestId:"request",idempotencyKey:"valid",file:{name:"test.png",type:"image/png",buffer:Buffer.from("x")}})).rejects.toMatchObject({statusCode:400});
+});
+
+
+it("mints lease age when a delayed waiter wins rather than when it began waiting",async()=>{
+  const {token,csrf}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();let clock=Date.now();const initial=clock;vi.spyOn(Date,"now").mockImplementation(()=>clock);
+  let fail!:(e:Error)=>void;let resume!:(b:Buffer)=>void;let enteredFirst!:()=>void;let enteredSecond!:()=>void;
+  const firstEntered=new Promise<void>(r=>{enteredFirst=r;});const secondEntered=new Promise<void>(r=>{enteredSecond=r;});
+  const processor=vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{enteredFirst();return new Promise<Buffer>((_,reject)=>{fail=reject;});}).mockImplementationOnce(()=>{enteredSecond();return new Promise<Buffer>(r=>{resume=r;});});
+  const first=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await firstEntered;
+  const second=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await new Promise(r=>setTimeout(r,40));clock=initial+14000;fail(new Error("first failed"));await first;await secondEntered;
+  const [claimed]=await db.select().from(operationKeys).where(eq(operationKeys.key,key));expect(Number(claimed.id.split(":")[1])).toBe(clock);
+  clock=initial+16000;const controller=new AbortController();const third=postImage(new Request(makeUploadRequest(id,token,csrf,key,bytes),{signal:controller.signal}),{params:Promise.resolve({id})});await new Promise(r=>setTimeout(r,50));expect(processor).toHaveBeenCalledTimes(2);controller.abort();expect((await third).status).toBe(400);
+  resume(bytes);const saved=await second;expect(saved.status).toBe(201);createdMedia.push((await saved.json()).image.mediaId);
+});
+
+
+it("renews a healthy held worker so duplicates cannot steal its lease or consume quota",async()=>{
+  const {token,csrf,userId}=await staff();const id=await createProductFixture();const bytes=await createValidImageBytes();const key=randomUUID();let clock=Date.now();const initial=clock;vi.spyOn(Date,"now").mockImplementation(()=>clock);
+  let resume!:(b:Buffer)=>void;let entered!:()=>void;const ready=new Promise<void>(r=>{entered=r;});const processor=vi.spyOn(imageProcessor,"processImage").mockImplementationOnce(()=>{entered();return new Promise<Buffer>(r=>{resume=r;});});
+  const owner=postImage(makeUploadRequest(id,token,csrf,key,bytes),{params:Promise.resolve({id})});await ready;const [before]=await db.select().from(operationKeys).where(eq(operationKeys.key,key));clock=initial+14000;
+  await new Promise(r=>setTimeout(r,4200));const [renewed]=await db.select().from(operationKeys).where(eq(operationKeys.key,key));expect(renewed.id).not.toBe(before.id);expect(renewed.createdAt).toEqual(before.createdAt);
+  clock=initial+20000;const controller=new AbortController();const duplicate=postImage(new Request(makeUploadRequest(id,token,csrf,key,bytes),{signal:controller.signal}),{params:Promise.resolve({id})});await new Promise(r=>setTimeout(r,80));expect(processor).toHaveBeenCalledTimes(1);controller.abort();expect((await duplicate).status).toBe(400);
+  resume(bytes);const saved=await owner;expect(saved.status).toBe(201);createdMedia.push((await saved.json()).image.mediaId);const rateKey=createHash("sha256").update(JSON.stringify(["staff_upload",userId])).digest("hex");expect((await db.select().from(uploadRateBuckets).where(eq(uploadRateBuckets.key,rateKey)))[0].attempts).toBe(1);
+});

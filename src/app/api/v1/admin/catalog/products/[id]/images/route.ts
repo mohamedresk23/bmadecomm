@@ -9,11 +9,13 @@ import {
 import { readMediaFile } from "../../../../../../../../lib/media/request";
 import { ApiError } from "../../../../../../../../shared/api/errors";
 
+import { MAX_REQUEST_BODY } from "../../../../../../../../modules/catalog/products/contracts/gallery";
+
 type Context = { params: Promise<{ id: string }> };
 
-function privateHandler(handler: (req: Request, context: Context) => Promise<NextResponse>) {
+function privateHandler(handler: (req: Request, context: Context, requestId: string) => Promise<NextResponse>) {
   return async (req: Request, ...args: unknown[]) => {
-    const correlationId = req.headers.get("x-correlation-id") || undefined;
+    const correlationId = req.headers.get("x-correlation-id") || randomUUID();
     const baseHeaders = new Headers({
       "Cache-Control": "private, no-store",
       Pragma: "no-cache",
@@ -21,9 +23,10 @@ function privateHandler(handler: (req: Request, context: Context) => Promise<Nex
     if (correlationId) baseHeaders.set("x-correlation-id", correlationId);
 
     try {
-      const response = await handler(req, args[0] as Context);
+      const response = await handler(req, args[0] as Context, correlationId);
       response.headers.set("Cache-Control", "private, no-store");
       response.headers.set("Pragma", "no-cache");
+      response.headers.set("x-correlation-id", correlationId);
       return response;
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -56,17 +59,17 @@ export const GET = privateHandler(async (req, route) => {
   return NextResponse.json({ success: true, gallery }, { status: 200 });
 });
 
-export const POST = privateHandler(async (req, route) => {
+export const POST = privateHandler(async (req, route, requestId) => {
   const { context } = await requireCatalogStaffSession(req, true);
   const { id: productId } = await route.params;
 
+  if (!productId.trim() || /[\x00-\x1f\x7f]/.test(productId)) throw ApiError.badRequest("Valid product id required");
   const idempotencyKey = req.headers.get("idempotency-key");
-  if (!idempotencyKey || idempotencyKey.length < 1 || Buffer.byteLength(idempotencyKey, "utf8") > 128) {
+  if (!idempotencyKey || !idempotencyKey.trim() || /[\x00-\x1f\x7f]/.test(idempotencyKey) || Buffer.byteLength(idempotencyKey, "utf8") > 128) {
     throw ApiError.badRequest("Idempotency-Key header is required (1-128 bytes)");
   }
 
-  const requestId = req.headers.get("x-correlation-id") || randomUUID();
-  const file = await readMediaFile(req);
+  const file = await readMediaFile(req, { maxBytes: MAX_REQUEST_BODY, deadlineMs: 15_000 });
   const arrayBuffer = await file.arrayBuffer();
   const buffer = Buffer.from(arrayBuffer);
 

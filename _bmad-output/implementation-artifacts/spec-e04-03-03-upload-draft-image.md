@@ -218,3 +218,25 @@ The full sequence decouples CPU-bound image processing from database connections
    - Injected database failure after file write: asserts file is deleted.
    - Injected `deletePrivate` failure: asserts failure is recorded in orphan log without disclosing paths to client.
    - Ambiguous commit simulation: asserts DB probe resolves state correctly.
+
+---
+
+### Review Findings
+
+- [x] [Review][Patch] Guard generic `/api/media/publish` (`publishMedia`) against promoting product-owned Draft media and add regression test [`src/lib/media/upload.ts:98`, `src/app/api/v1/admin/catalog/products/[id]/images/route.test.ts`]
+- [x] [Review][Patch] Implement Step 5 ambiguous-commit resolution by probing `operation_keys` before deleting staged private file on transaction error, and add ambiguous-commit test [`src/modules/catalog/products/application/gallery-service.ts:452`, `src/app/api/v1/admin/catalog/products/[id]/images/route.test.ts`]
+- [x] [Review][Patch] Fix active-lease polling loops to verify `payloadHash` up front, respect `signal?.aborted`, and exit/retry reservation when the owning worker fails and deletes its `operation_keys` row [`src/modules/catalog/products/application/gallery-service.ts:196-294`]
+- [x] [Review][Patch] Fix stalled-lease reclamation (`>= 15s`) to reject expired (`> 24h`) or payload-mismatched uncompleted keys and fence `UPDATE` on `eq(operationKeys.id, existing.id)` [`src/modules/catalog/products/application/gallery-service.ts:196-247`]
+- [x] [Review][Patch] Lock `operation_keys` in Phase 3 by `(actor, operation, key)` `FOR UPDATE` and verify `lockedKey.id === leaseToken`, guard `operation_keys` deletes with `isNull(operationKeys.completedAt)`, and add zombie-fencing + failed-upload retry tests [`src/modules/catalog/products/application/gallery-service.ts:305-366`, `src/app/api/v1/admin/catalog/products/[id]/images/route.test.ts`]
+- [x] [Review][Patch] Filter `nextSortOrder` calculation by `isNull(productMedia.removedAt)` so soft-removed attachments do not break contiguous active gallery positions [`src/modules/catalog/products/application/gallery-service.ts:369-374`]
+- [x] [Review][Patch] Record failed orphan deletions in `.local/orphans.log` with `requestId` and file path (while preserving `orphan-recovery.jsonl`) [`src/lib/media/storage.ts:28-31`, `src/modules/catalog/products/application/gallery-service.ts:459`]
+- [x] [Review][Patch] Enforce active worker concurrency semaphore (max 4 concurrent child workers per instance, 15s FIFO queue timeout -> `503 SERVER_BUSY`) [`src/lib/media/image-process.ts:8`]
+- [x] [Review][Patch] Configure 15-second body read deadline and `MAX_REQUEST_BODY` from `contracts/gallery.ts` on `POST /api/v1/admin/catalog/products/[id]/images` [`src/lib/media/request.ts:6-15`, `src/app/api/v1/admin/catalog/products/[id]/images/route.ts:69`]
+- [x] [Review][Patch] Validate `Idempotency-Key` and `productId` against blank/control characters, map `storage.savePrivate` errors to `503 MEDIA_UNAVAILABLE`, verify product existence/Draft state on replay, and generate fallback `correlationId` in `privateHandler` [`src/app/api/v1/admin/catalog/products/[id]/images/route.ts:16-66`, `src/modules/catalog/products/application/gallery-service.ts:184-376`]
+- [x] [Review][Patch] Fix `ProductGallery` & `ProductManager` UI state: distinguish 422 policy/animation errors from 10-image capacity errors, hide same-key retry on permanent 4xx validation errors, reset upload state and disable controls while loading/switching `productId`, and call `loadGallery` after saving a new draft [`src/app/admin/(workspace)/catalog/products/product-gallery.tsx:27-195`, `src/app/admin/(workspace)/catalog/products/product-manager.tsx:208`]
+- [x] [Review][Patch] Add missing verification tests for `ProductManager` CSRF/upload wiring, declared MIME/extension mismatch (`415`) & animated images (`422`), rate-limit window rollover & `< 600` `Retry-After` seconds, replay live-auth rejection, and invalid `Origin` rejection [`src/app/admin/(workspace)/catalog/products/product-manager.test.tsx`, `src/app/api/v1/admin/catalog/products/[id]/images/route.test.ts`]
+- [x] [Review][Patch] Restore accidentally removed `4-301` and `4-302` `done` entries in `sprint-status.yaml` [`_bmad-output/implementation-artifacts/sprint-status.yaml:25-30`]
+- [x] [Review][Defer] Enforce mandatory `Origin` header presence when `Origin` is omitted in `requireStaffSession` [`src/modules/content/settings/infrastructure/admin-auth.ts:71-74`] — deferred: pre-existing shared authentication helper behavior across catalog/settings endpoints where `Origin` is checked when present alongside mandatory `X-CSRF-Token`.
+
+#### Rejected
+- None (0 rejected findings).

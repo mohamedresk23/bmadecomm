@@ -122,7 +122,10 @@ export function ProductManager() {
     setDimensionText(text); setAppliedDimensions(text);
     cleanForm.current = formSignature(product.name, product.description ?? "", product.categoryIds, loadedRows, text);
   }
+  const galleryRequest = useRef(0);
   const loadGallery = useCallback(async (productId: string) => {
+    const request = ++galleryRequest.current;
+    setGallery(null);
     setGalleryLoading(true);
     setGalleryError(null);
     try {
@@ -130,11 +133,12 @@ export function ProductManager() {
         `${endpoint}/${encodeURIComponent(productId)}/images`,
         { cache: "no-store" }
       );
-      setGallery(res.gallery);
+      if (request === galleryRequest.current) setGallery(res.gallery);
     } catch {
+      if (request !== galleryRequest.current) return;
       setGalleryError("تعذر تحميل صور المنتج. أعد المحاولة.");
     } finally {
-      setGalleryLoading(false);
+      if (request === galleryRequest.current) setGalleryLoading(false);
     }
   }, []);
 
@@ -156,6 +160,7 @@ export function ProductManager() {
     if (!canReplace()) return;
     setId(undefined); setName(""); setDescription(""); setCategoryIds([]); setRows([emptyVariant()]); setDimensionText(""); setError(""); setFields({}); setSuccess("");
     setAppliedDimensions(""); setPricing(collection?.metadata ?? null); setPricesNeedReview(false);
+    galleryRequest.current++;
     setGallery(null); setGalleryError(null); setGalleryLoading(false);
     cleanForm.current = formSignature("", "", [], [emptyVariant()], ""); pendingCreate.current = null;
   }
@@ -206,6 +211,7 @@ export function ProductManager() {
       });
       pendingCreate.current = null;
       fill(response.product);
+      void loadGallery(response.product.id);
       setCollection(current => current ? { ...current, products: [...current.products.filter(product => product.id !== response.product.id), response.product] } : current);
       setSuccess("تم حفظ المسودة بنجاح."); setExpired(false);
     } catch (err) { reportError(err); }
@@ -263,7 +269,7 @@ export function ProductManager() {
       <ProductGallery
         productId={id}
         gallery={gallery}
-        loading={galleryLoading}
+        loading={galleryLoading || loading}
         error={galleryError}
         onRetry={() => { if (id) void loadGallery(id); }}
         csrf={collection?.csrf}

@@ -1,20 +1,24 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+export type RecoveryMetadata = { requestId?: string };
+
 export interface StorageAdapter {
-  savePrivate(filename: string, buffer: Buffer): Promise<void>;
+  savePrivate(filename: string, buffer: Buffer, metadata?: RecoveryMetadata): Promise<void>;
   readPrivate(filename: string): Promise<Buffer>;
   publish(filename: string): Promise<string>;
   removePrivate(filename: string): Promise<void>;
   removePublic(filename: string): Promise<void>;
-  recordOrphan(filename: string, location?: "private" | "public"): Promise<void>;
+  recordOrphan(filename: string, location?: "private" | "public", metadata?: RecoveryMetadata): Promise<void>;
 }
 
 export class LocalFileSystemAdapter implements StorageAdapter {
   private privateDir: string;
   private publicDir: string;
+  private recoveryDir: string;
 
   constructor(root = process.cwd()) {
+    this.recoveryDir = path.join(root, ".local");
     this.privateDir = path.join(root, "storage", "private");
     this.publicDir = path.join(root, "public", "uploads");
   }
@@ -25,9 +29,20 @@ export class LocalFileSystemAdapter implements StorageAdapter {
   }
   async removePrivate(filename: string) { await fs.rm(path.join(this.privateDir, this.key(filename)), { force: true }); }
   async removePublic(filename: string) { await fs.rm(path.join(this.publicDir, this.key(filename)), { force: true }); }
-  async recordOrphan(filename: string, location: "private" | "public" = "private") {
-    await fs.mkdir(this.privateDir, { recursive: true });
-    await fs.appendFile(path.join(this.privateDir, "orphan-recovery.jsonl"), JSON.stringify({ key: this.key(filename), location, time: new Date().toISOString() }) + "\n");
+  async recordOrphan(filename: string, location: "private" | "public" = "private", metadata?: RecoveryMetadata) {
+    const key = this.key(filename);
+    const results = await Promise.allSettled([
+      (async () => {
+        await fs.mkdir(this.recoveryDir, { recursive: true });
+        await fs.appendFile(path.join(this.recoveryDir, "orphans.log"), JSON.stringify({ key, location, path: path.join(location === "private" ? this.privateDir : this.publicDir, key), requestId: metadata?.requestId, time: new Date().toISOString() }) + "\n");
+      })(),
+      (async () => {
+        await fs.mkdir(this.privateDir, { recursive: true });
+        await fs.appendFile(path.join(this.privateDir, "orphan-recovery.jsonl"), JSON.stringify({ key, location, time: new Date().toISOString() }) + "\n");
+      })(),
+    ]);
+    const failed = results.find(result => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }
 
   async readPrivate(filename: string): Promise<Buffer> {
@@ -35,14 +50,14 @@ export class LocalFileSystemAdapter implements StorageAdapter {
     return fs.readFile(filePath);
   }
 
-  async savePrivate(filename: string, buffer: Buffer): Promise<void> {
+  async savePrivate(filename: string, buffer: Buffer, metadata?: RecoveryMetadata): Promise<void> {
     await fs.mkdir(this.privateDir, { recursive: true });
     const filePath = path.join(this.privateDir, this.key(filename));
     const handle = await fs.open(filePath, "wx");
     try { await handle.writeFile(buffer); await handle.close(); }
     catch (error) {
       await handle.close().catch(() => {});
-      try { await this.removePrivate(filename); } catch { await this.recordOrphan(filename); }
+      try { await this.removePrivate(filename); } catch { await this.recordOrphan(filename, "private", metadata); }
       throw error;
     }
   }

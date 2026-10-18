@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
-import { DbContext, withTransaction } from "../../../../db/tx";
+import { DbContext, TransactionContext, withTransaction } from "../../../../db/tx";
 import { products, productMedia, media, operationKeys } from "../../../../db/schema";
 import { ApiError } from "../../../../shared/api/errors";
 import { storage } from "../../../../lib/media/storage";
@@ -127,6 +127,8 @@ export async function uploadGalleryImage(
 ): Promise<UploadImageResponse> {
   const { productId, staffUserId, requestId, idempotencyKey, file, signal } = input;
 
+  if (!productId.trim() || /[\x00-\x1f\x7f]/.test(productId) || !idempotencyKey.trim() || /[\x00-\x1f\x7f]/.test(idempotencyKey) || Buffer.byteLength(idempotencyKey) > 128) throw ApiError.badRequest("Valid product and idempotency key required");
+
   if (file.buffer.byteLength > MAX_FILE_SIZE) {
     throw new ApiError(413, "PAYLOAD_TOO_LARGE", "File exceeds 5 MiB limit");
   }
@@ -164,159 +166,112 @@ export async function uploadGalleryImage(
 
   const actor = `staff:${staffUserId}`;
   const operation = `catalog.product.image.upload:${productId}`;
-  const leaseToken = randomUUID();
+  let leaseToken = "";
 
-  // Phase 1: Fast Reservation & Completed Replay Check
-  let ownsReservation = false;
-
-  const [existing] = await db
-    .select()
-    .from(operationKeys)
-    .where(
-      and(
-        eq(operationKeys.actor, actor),
-        eq(operationKeys.operation, operation),
-        eq(operationKeys.key, idempotencyKey)
-      )
-    );
-
-  if (existing) {
-    if (existing.completedAt) {
-      // Key completed: check 24-hour expiry and payload hash match
-      if (Date.now() - existing.createdAt.getTime() > IDEMPOTENCY_WINDOW_MS) {
-        throw ApiError.conflict("Idempotency key has expired. Use a fresh key.");
+  const scope = and(eq(operationKeys.actor, actor), eq(operationKeys.operation, operation), eq(operationKeys.key, idempotencyKey));
+  const releaseReservation = () => db.delete(operationKeys).where(and(scope, eq(operationKeys.id, leaseToken), isNull(operationKeys.completedAt))).catch(() => {});
+  const boundedLeaseTransaction = <T>(work: (tx: TransactionContext) => Promise<T>) => withTransaction(db, async tx => {
+    await tx.execute(sql`SET LOCAL lock_timeout = '1000ms'`);
+    await tx.execute(sql`SET LOCAL statement_timeout = '2000ms'`);
+    return work(tx);
+  });
+  const freshLease = () => `${randomUUID()}:${Date.now()}`;
+  const deadline = Date.now() + 15_000;
+  while (true) {
+    if (signal?.aborted) throw new ApiError(400, "REQUEST_ABORTED", "Request aborted");
+    const [existing] = await db.select().from(operationKeys).where(scope);
+    if (existing) {
+      if (Date.now() - existing.createdAt.getTime() > IDEMPOTENCY_WINDOW_MS) throw ApiError.conflict("Idempotency key has expired. Use a fresh key.");
+      if (existing.payloadHash !== payloadHash) throw ApiError.conflict("Idempotency payload mismatch");
+      if (existing.completedAt) {
+        const [product] = await db.select({ status: products.status }).from(products).where(eq(products.id, productId));
+        if (!product) throw ApiError.notFound("Product not found");
+        if (product.status !== "draft") throw ApiError.conflict("Product images can only be uploaded to draft products");
+        return existing.result as unknown as UploadImageResponse;
       }
-      if (existing.payloadHash !== payloadHash) {
-        throw ApiError.conflict("Idempotency payload mismatch");
+      if (Date.now() - (Number(existing.id.split(":")[1]) || existing.createdAt.getTime()) >= 15_000) {
+        const claimed = await boundedLeaseTransaction(async tx => {
+          const [locked] = await tx.select().from(operationKeys).where(scope).for("update");
+          if (!locked || locked.id !== existing.id || locked.completedAt) return null;
+          if (Date.now() - locked.createdAt.getTime() > IDEMPOTENCY_WINDOW_MS) throw ApiError.conflict("Idempotency key has expired. Use a fresh key.");
+          if (locked.payloadHash !== payloadHash) throw ApiError.conflict("Idempotency payload mismatch");
+          const token = freshLease();
+          await tx.update(operationKeys).set({ id: token }).where(and(scope, eq(operationKeys.id, existing.id), isNull(operationKeys.completedAt)));
+          return token;
+        }).catch(error => { if (error instanceof ApiError) throw error; throw new ApiError(503, "SERVER_BUSY", "Upload reservation is busy; retry with the same key"); });
+        if (claimed) { leaseToken = claimed; break; }
       }
-      return existing.result as unknown as UploadImageResponse;
-    }
-
-    // Key in progress (completedAt is null)
-    const ageMs = Date.now() - existing.createdAt.getTime();
-    if (ageMs < 15_000) {
-      // Active lease by another worker: wait / poll for completion
-      const startPoll = Date.now();
-      let completedResult: UploadImageResponse | null = null;
-      while (Date.now() - startPoll < 15_000) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        const [polled] = await db
-          .select()
-          .from(operationKeys)
-          .where(
-            and(
-              eq(operationKeys.actor, actor),
-              eq(operationKeys.operation, operation),
-              eq(operationKeys.key, idempotencyKey)
-            )
-          );
-        if (polled?.completedAt) {
-          if (polled.payloadHash !== payloadHash) {
-            throw ApiError.conflict("Idempotency payload mismatch");
-          }
-          completedResult = polled.result as unknown as UploadImageResponse;
-          break;
-        }
-      }
-      if (completedResult) {
-        return completedResult;
-      }
-      throw ApiError.conflict("An upload with this idempotency key is already in progress");
-    }
-
-    // Stalled lease (>= 15s): reclaim reservation
-    const reclaimed = await db
-      .update(operationKeys)
-      .set({
-        id: leaseToken,
-        createdAt: sql`clock_timestamp()`,
-        payloadHash,
-      })
-      .where(
-        and(
-          eq(operationKeys.actor, actor),
-          eq(operationKeys.operation, operation),
-          eq(operationKeys.key, idempotencyKey),
-          isNull(operationKeys.completedAt)
-        )
-      )
-      .returning();
-
-    if (reclaimed.length > 0) {
-      ownsReservation = true;
-    }
-  } else {
-    // Insert new reservation
-    const inserted = await db
-      .insert(operationKeys)
-      .values({
-        id: leaseToken,
-        actor,
-        operation,
-        key: idempotencyKey,
-        payloadHash,
-        completedAt: null,
-      })
-      .onConflictDoNothing()
-      .returning();
-
-    if (inserted.length > 0) {
-      ownsReservation = true;
     } else {
-      // Conflict on concurrent insert: another process just reserved this key!
-      // Wait / poll every 250ms (up to 15s) for completion
-      const startPoll = Date.now();
-      let completedResult: UploadImageResponse | null = null;
-      while (Date.now() - startPoll < 15_000) {
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        const [polled] = await db
-          .select()
-          .from(operationKeys)
-          .where(
-            and(
-              eq(operationKeys.actor, actor),
-              eq(operationKeys.operation, operation),
-              eq(operationKeys.key, idempotencyKey)
-            )
-          );
-        if (polled?.completedAt) {
-          if (polled.payloadHash !== payloadHash) {
-            throw ApiError.conflict("Idempotency payload mismatch");
-          }
-          completedResult = polled.result as unknown as UploadImageResponse;
-          break;
-        }
-      }
-      if (completedResult) {
-        return completedResult;
-      }
-      throw ApiError.conflict("An upload with this idempotency key is already in progress");
+      const inserted = await boundedLeaseTransaction(async tx => {
+        const candidate = freshLease();
+        const rows = await tx.insert(operationKeys).values({ id: candidate, actor, operation, key: idempotencyKey, payloadHash, completedAt: null }).onConflictDoNothing().returning();
+        if (!rows.length) return null;
+        // A unique-index wait may have elapsed before INSERT returned.
+        const token = freshLease();
+        await tx.update(operationKeys).set({ id: token }).where(eq(operationKeys.id, candidate));
+        return token;
+      }).catch(error => { if (error instanceof ApiError) throw error; throw new ApiError(503, "SERVER_BUSY", "Upload reservation is busy; retry with the same key"); });
+      if (inserted) { leaseToken = inserted; break; }
+      if (Date.now() >= deadline) throw ApiError.conflict("Unable to acquire idempotency reservation");
+      continue;
     }
-  }
-
-  if (!ownsReservation) {
-    throw ApiError.conflict("Unable to acquire idempotency reservation");
+    if (Date.now() >= deadline) throw ApiError.conflict("An upload with this idempotency key is already in progress");
+    await new Promise<void>((resolve, reject) => {
+      const done = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); resolve(); };
+      const cancel = () => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); reject(new ApiError(400, "REQUEST_ABORTED", "Request aborted")); };
+      const timer = setTimeout(done, 100);
+      signal?.addEventListener("abort", cancel, { once: true });
+      if (signal?.aborted) cancel();
+    });
   }
 
   // Consume rate limit quota for newly owned attempt
-  const retryAfter = await throttleStaffUpload(db, staffUserId);
+  let retryAfter: number;
+  try { retryAfter = await throttleStaffUpload(db, staffUserId); }
+  catch (error) { await releaseReservation(); throw error; }
   if (retryAfter > 0) {
     // Release uncompleted reservation so user can retry once rate limit clears
-    await db.delete(operationKeys).where(eq(operationKeys.id, leaseToken)).catch(() => {});
+    await releaseReservation();
     throw new ApiError(429, "RATE_LIMITED", "Too many upload attempts. Please try again later.", [
       { field: "upload", message: `Retry after ${retryAfter} seconds` },
     ]);
   }
 
-  // Phase 2: Off-DB Image Processing (No DB connections held)
+  // Renew only our incomplete lease while waiting for a worker or decoding.
+  // One renewal runs at a time, and persistence waits for the final renewal.
+  const processing = new AbortController();
+  const abortProcessing = () => processing.abort();
+  signal?.addEventListener("abort", abortProcessing, { once: true });
+  if (signal?.aborted) processing.abort();
+  let renewing = true;
+  let renewalFailure: unknown;
+  let renewal: Promise<void> = Promise.resolve();
+  let renewalTimer: ReturnType<typeof setTimeout>;
+  const renew = () => {
+    renewal = boundedLeaseTransaction(async tx => {
+      const previous = leaseToken;
+      const [locked] = await tx.select().from(operationKeys).where(scope).for("update");
+      if (!locked || locked.id !== previous || locked.completedAt) throw ApiError.conflict("Idempotency lease lost");
+      const token = freshLease();
+      await tx.update(operationKeys).set({ id: token }).where(and(scope, eq(operationKeys.id, previous), isNull(operationKeys.completedAt)));
+      return token;
+    }).then(token => { leaseToken = token; }).catch(error => { renewalFailure = error; processing.abort(); }).finally(() => {
+      if (renewing && !renewalFailure) renewalTimer = setTimeout(renew, 4000);
+    });
+  };
+  renewalTimer = setTimeout(renew, 4000);
   let processedBuffer: Buffer;
   try {
-    processedBuffer = await processImage(file.buffer, detectedMime, signal);
-  } catch (procErr: unknown) {
-    // Delete uncompleted reservation on processing failure
-    await db.delete(operationKeys).where(eq(operationKeys.id, leaseToken)).catch(() => {});
-    throw procErr;
+    processedBuffer = await processImage(file.buffer, detectedMime, processing.signal);
+  } catch (error) {
+    renewing = false; clearTimeout(renewalTimer); await renewal;
+    await releaseReservation();
+    throw renewalFailure ?? error;
+  } finally {
+    renewing = false; clearTimeout(renewalTimer); await renewal;
+    signal?.removeEventListener("abort", abortProcessing);
   }
+  if (renewalFailure) { await releaseReservation(); throw renewalFailure; }
 
   // Phase 3: Atomic Persistence Transaction
   const mediaId = createId();
@@ -358,10 +313,10 @@ export async function uploadGalleryImage(
       const [lockedKey] = await tx
         .select()
         .from(operationKeys)
-        .where(eq(operationKeys.id, leaseToken))
+        .where(scope)
         .for("update");
 
-      if (!lockedKey || lockedKey.completedAt !== null || lockedKey.payloadHash !== payloadHash) {
+      if (!lockedKey || lockedKey.id !== leaseToken || lockedKey.completedAt !== null || lockedKey.payloadHash !== payloadHash) {
         throw ApiError.conflict("Idempotency lease lost or payload mismatch");
       }
 
@@ -369,11 +324,12 @@ export async function uploadGalleryImage(
       const [maxSortRow] = await tx
         .select({ maxOrder: sql<number>`coalesce(max(sort_order), -1)::int` })
         .from(productMedia)
-        .where(eq(productMedia.productId, productId));
+        .where(and(eq(productMedia.productId, productId), isNull(productMedia.removedAt)));
       const nextSortOrder = (maxSortRow?.maxOrder ?? -1) + 1;
 
       // Save private file to disk
-      await storage.savePrivate(filename, processedBuffer);
+      try { await storage.savePrivate(filename, processedBuffer, { requestId }); }
+      catch { throw new ApiError(503, "MEDIA_UNAVAILABLE", "Media storage unavailable"); }
       staged = true;
 
       if (signal?.aborted) {
@@ -451,22 +407,27 @@ export async function uploadGalleryImage(
     });
   } catch (err: unknown) {
     if (staged) {
-      // Immediate compensation cleanup
+      let committed: UploadImageResponse | null;
       try {
-        await storage.removePrivate(filename);
+        committed = await boundedLeaseTransaction(async (tx) => {
+          const [key] = await tx.select().from(operationKeys).where(scope).for("update");
+          const [ownedMedia] = await tx.select({ id: media.id }).from(media).innerJoin(productMedia, eq(productMedia.mediaId, media.id)).where(and(eq(media.id, mediaId), eq(media.filename, filename), eq(productMedia.productId, productId)));
+          if (key?.completedAt && key.id === leaseToken && ownedMedia) return key.result as unknown as UploadImageResponse;
+          if (ownedMedia) throw new Error("Committed media requires recovery");
+          return null;
+        });
       } catch {
-        try {
-          await storage.recordOrphan(filename);
-        } catch {
-          console.error("Media recovery required", { key: filename, requestId });
-        }
+        console.error("Media commit resolution required", { requestId, filename, leaseToken, productId });
+        throw new ApiError(503, "MEDIA_UNAVAILABLE", "Upload outcome unavailable; retry with the same key");
+      }
+      if (committed) return committed;
+      try { await storage.removePrivate(filename); }
+      catch {
+        try { await storage.recordOrphan(filename, "private", { requestId }); }
+        catch { console.error("Media recovery required", { key: filename, requestId }); }
       }
     }
-    // Delete uncompleted lease row on failure so staff can retry
-    await db
-      .delete(operationKeys)
-      .where(and(eq(operationKeys.id, leaseToken), isNull(operationKeys.completedAt)))
-      .catch(() => {});
+    await releaseReservation();
     throw err;
   }
 }
