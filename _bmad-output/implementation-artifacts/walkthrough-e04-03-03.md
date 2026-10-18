@@ -83,7 +83,6 @@ Expected output:
 
 ## 4. Current State & Next Steps
 
-- Story `E04-03-03` is currently in **`review`** status.
-- In accordance with project instructions, Story 03 will **not** be marked `done` until explicit human sign-off is granted by the user.
-- Stories 04 through 07 remain untouched in the backlog.
+- Story `E04-03-03` has been **verified, approved, and marked `done`**.
+- The next story queued for implementation is **`E04-03-04`** (`4-304-save-alt-text-and-show-publication-readiness`).
 
