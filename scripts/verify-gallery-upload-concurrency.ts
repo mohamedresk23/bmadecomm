@@ -360,6 +360,127 @@ async function runParent() {
       }
       console.log("[Recovery PASS] Independent held transaction: waiting resolution and lock-timeout preserve committed bytes and lease.");
 
+      // A healthy decode has finished, so lease renewal has stopped. Hold the
+      // product lock long enough for a duplicate to reclaim that waiting lease.
+      const longProduct = "long_lock_" + randomUUID();
+      const longKey = randomUUID();
+      await client`INSERT INTO products (id,name,status) VALUES (${longProduct},'Long product lock fixture','draft')`;
+      const appPrefix = "long_lock_" + randomBytes(6).toString("hex");
+      const longConnection = (name: string) => postgres(url, {
+        max: 2, connect_timeout: 5, onnotice: () => {},
+        connection: { search_path: isolated, statement_timeout: 60000, lock_timeout: 60000, application_name: name },
+      });
+      const locker = longConnection(appPrefix + "_locker");
+      const uploaderA = longConnection(appPrefix + "_a");
+      const uploaderB = longConnection(appPrefix + "_b");
+      const previousStorage = { savePrivate: storage.savePrivate, removePrivate: storage.removePrivate, recordOrphan: storage.recordOrphan };
+      storage.savePrivate = adapter.savePrivate.bind(adapter);
+      storage.removePrivate = adapter.removePrivate.bind(adapter);
+      storage.recordOrphan = adapter.recordOrphan.bind(adapter);
+      let releaseProduct!: () => void;
+      let productLocked!: () => void;
+      const releaseProductGate = new Promise<void>(resolve => { releaseProduct = resolve; });
+      const productLockedGate = new Promise<void>(resolve => { productLocked = resolve; });
+      let heldProductTx: Promise<unknown> = Promise.resolve();
+      let lockerPid = 0;
+      type UploadOutcome = { result: Awaited<ReturnType<typeof uploadGalleryImage>> | null; error: { statusCode?: number; message?: string } | null };
+      const uploads: Promise<UploadOutcome>[] = [];
+      const startUpload = (connection: typeof uploaderA) => {
+        const pending = uploadGalleryImage(drizzle(connection, { schema }), {
+          productId: longProduct, staffUserId, requestId: "long-lock-" + randomUUID(), idempotencyKey: longKey,
+          file: { name: "test.png", type: "image/png", buffer: imageBuffer },
+        }).then(result => ({ result, error: null }), error => ({ result: null, error }));
+        uploads.push(pending);
+        return pending;
+      };
+      const observesProductLock = async (applicationName: string) => {
+        const [waiting] = await client`WITH RECURSIVE blocking(pid,chain) AS (
+          SELECT pid,ARRAY[pid] FROM pg_stat_activity
+          WHERE application_name=${applicationName} AND wait_event_type='Lock' AND query LIKE '%products%'
+          UNION ALL
+          SELECT blocker,chain || blocker FROM blocking
+          CROSS JOIN LATERAL unnest(pg_blocking_pids(blocking.pid)) AS blockers(blocker)
+          WHERE NOT blocker=ANY(chain)
+        ) SELECT count(*)::int AS count FROM blocking WHERE pid=${lockerPid}`;
+        return waiting.count > 0;
+      };
+      const waitForProductLock = async (applicationName: string) => {
+        const deadline = performance.now() + 20_000;
+        while (performance.now() < deadline) {
+          if (await observesProductLock(applicationName)) return;
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        throw new Error("Upload never reached the observed product lock wait: " + applicationName);
+      };
+      try {
+        const [quotaBefore] = await client`SELECT attempts FROM upload_rate_buckets WHERE key=${rateKey}`;
+        const privateDir = path.join(tempImageDir!, "storage", "private");
+        const filesBefore = new Set(await fs.readdir(privateDir));
+        heldProductTx = locker.begin(async tx => {
+          const [session] = await tx`SELECT pg_backend_pid() AS pid`;
+          lockerPid = session.pid;
+          await tx`SELECT id FROM products WHERE id=${longProduct} FOR UPDATE`;
+          productLocked();
+          await releaseProductGate;
+        });
+        // Also observe early locker failure instead of waiting forever on a gate.
+        await Promise.race([productLockedGate, heldProductTx.then(() => { throw new Error("Product lock released before the test gate"); })]);
+        const original = startUpload(uploaderA);
+        await waitForProductLock(appPrefix + "_a");
+        const [originalLease] = await client`SELECT id FROM operation_keys WHERE actor=${`staff:${staffUserId}`} AND operation=${`catalog.product.image.upload:${longProduct}`} AND key=${longKey}`;
+        assert.ok(originalLease, "Waiting original owns a reservation");
+        const waitStarted = performance.now();
+        await new Promise(resolve => setTimeout(resolve, 15_300));
+        const duplicate = startUpload(uploaderB);
+        await waitForProductLock(appPrefix + "_b");
+        const [replacement] = await client`SELECT id,completed_at FROM operation_keys WHERE actor=${`staff:${staffUserId}`} AND operation=${`catalog.product.image.upload:${longProduct}`} AND key=${longKey}`;
+        assert.notEqual(replacement.id, originalLease.id, "Duplicate reclaims the expired original lease while product stays locked");
+        assert.equal(replacement.completed_at, null);
+        assert.ok(await observesProductLock(appPrefix + "_a"), "Original still waits on the intended locker after replacement");
+        assert.ok(await observesProductLock(appPrefix + "_b"), "Replacement also waits on the intended lock chain");
+        assert.deepEqual(new Set(await fs.readdir(privateDir)), filesBefore, "Neither waiting worker stages bytes before product/key checks");
+        const heldMs = performance.now() - waitStarted;
+        assert.ok(heldMs >= 15_000, "Original must wait more than fifteen real seconds");
+        releaseProduct();
+        await heldProductTx;
+        const [originalOutcome, duplicateOutcome] = await Promise.all([original, duplicate]);
+        assert.equal(originalOutcome.error?.statusCode, 409, "Original is fenced after lease replacement");
+        assert.match(originalOutcome.error?.message ?? "", /lease lost/);
+        assert.equal(duplicateOutcome.result?.success, true, "Replacement commits successfully");
+        const readState = async () => {
+          const [state] = await client`SELECT media_revision::text AS revision,
+            (SELECT count(*)::int FROM product_media WHERE product_id=${longProduct}) AS attachments,
+            (SELECT count(*)::int FROM audit_events WHERE resource=${`product:${longProduct}`} AND action='catalog.product.image.attach') AS audits
+            FROM products WHERE id=${longProduct}`;
+          return state;
+        };
+        const state = await readState();
+        assert.deepEqual(state, { revision: "1", attachments: 1, audits: 1 });
+        const [quotaAfter] = await client`SELECT attempts FROM upload_rate_buckets WHERE key=${rateKey}`;
+        assert.equal(quotaAfter.attempts - quotaBefore.attempts, 2, "Each owner consumes an attempt, including the fenced original");
+        const [savedMedia] = await client`SELECT m.filename FROM media m JOIN product_media pm ON pm.media_id=m.id WHERE pm.product_id=${longProduct}`;
+        const savedBytes = await adapter.readPrivate(savedMedia.filename);
+        assert.ok(savedBytes.length > 0);
+        const addedFiles = (await fs.readdir(privateDir)).filter(filename => !filesBefore.has(filename));
+        assert.deepEqual(addedFiles, [savedMedia.filename], "Only the winning private file remains");
+        const replay = await uploadGalleryImage(drizzle(uploaderA, { schema }), {
+          productId: longProduct, staffUserId, requestId: "long-lock-replay", idempotencyKey: longKey,
+          file: { name: "test.png", type: "image/png", buffer: imageBuffer },
+        });
+        assert.deepEqual(replay, duplicateOutcome.result, "Replay returns the complete winning response");
+        const [quotaReplay] = await client`SELECT attempts FROM upload_rate_buckets WHERE key=${rateKey}`;
+        assert.equal(quotaReplay.attempts, quotaAfter.attempts, "Replay does not consume a third attempt");
+        assert.deepEqual(await readState(), state, "Replay leaves attachment, revision and audit counts unchanged");
+        assert.deepEqual((await fs.readdir(privateDir)).filter(filename => !filesBefore.has(filename)), [savedMedia.filename], "Replay creates no extra private file");
+        assert.deepEqual(await adapter.readPrivate(savedMedia.filename), savedBytes, "Replay preserves winning bytes");
+        console.log("[Long product lock PASS]", { heldMs: Math.round(heldMs), originalStatus: 409, replacement: "success", attachments: 1, audits: 1, revision: "1", quotaDelta: 2, replay: "same image" });
+      } finally {
+        releaseProduct();
+        await Promise.allSettled([heldProductTx, ...uploads]);
+        Object.assign(storage, previousStorage);
+        await Promise.all([locker.end({ timeout: 5 }), uploaderA.end({ timeout: 5 }), uploaderB.end({ timeout: 5 })]);
+      }
+
       // ---------------------------------------------------------
       // TEST 2: Slot 10 Capacity Race
       // ---------------------------------------------------------
