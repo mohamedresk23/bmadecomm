@@ -28,7 +28,7 @@ import { uploadGalleryImage } from "../../../../../../../../modules/catalog/prod
 import { throttleStaffUpload } from "../../../../../../../../modules/catalog/products/infrastructure/upload-rate-limit";
 import * as imageProcessor from "../../../../../../../../lib/media/image-process";
 import * as auditModule from "../../../../../../../../shared/authz/audit";
-import { GET as getGallery, POST as postImage } from "./route";
+import { GET as getGallery, POST as postImage, PUT as putGallery } from "./route";
 import { GET as getPreview } from "./[imageId]/content/route";
 import { POST as publishImage } from "../../../../../../media/publish/route";
 
@@ -207,6 +207,28 @@ function makeUploadRequest(
     body: formData,
   });
 }
+
+function makePutGalleryRequest(
+  productId: string,
+  body: unknown,
+  token?: string,
+  csrf?: string,
+  options: { correlationId?: string; contentType?: string } = {}
+) {
+  const headers: Record<string, string> = {
+    "Content-Type": options.contentType ?? "application/json",
+  };
+  if (token) headers["Cookie"] = `__Host-staff-session=${token}`;
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  if (options.correlationId) headers["X-Correlation-Id"] = options.correlationId;
+
+  return new Request(`http://localhost:3000/api/v1/admin/catalog/products/${productId}/images`, {
+    method: "PUT",
+    headers,
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
 
 describe("Product gallery metadata & preview API", () => {
   it("rejects guest and customer sessions with 401/403 before executing queries", async () => {
@@ -851,3 +873,473 @@ it("renews a healthy held worker so duplicates cannot steal its lease or consume
   clock=initial+20000;const controller=new AbortController();const duplicate=postImage(new Request(makeUploadRequest(id,token,csrf,key,bytes),{signal:controller.signal}),{params:Promise.resolve({id})});await new Promise(r=>setTimeout(r,80));expect(processor).toHaveBeenCalledTimes(1);controller.abort();expect((await duplicate).status).toBe(400);
   resume(bytes);const saved=await owner;expect(saved.status).toBe(201);createdMedia.push((await saved.json()).image.mediaId);const rateKey=createHash("sha256").update(JSON.stringify(["staff_upload",userId])).digest("hex");expect((await db.select().from(uploadRateBuckets).where(eq(uploadRateBuckets.key,rateKey)))[0].attempts).toBe(1);
 });
+
+describe("PUT /api/v1/admin/catalog/products/[id]/images - Update gallery", () => {
+  async function seedAttachments(productId: string, count = 2) {
+    const pims: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const filename = `${randomUUID()}.png`;
+      const mediaId = await createMediaFixture(filename);
+      const pimId = `pim_${randomUUID().slice(0, 8)}`;
+      await db.insert(productMedia).values({
+        id: pimId,
+        productId,
+        mediaId,
+        sortOrder: i,
+        altText: i === 0 ? "" : `Alt ${i}`,
+      });
+      pims.push(pimId);
+    }
+    return pims;
+  }
+
+  it("updates alt text on active image, increments revision, writes audit, and clears publication issues", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0, pim1] = await seedAttachments(productId, 2);
+
+    const payload = {
+      expectedRevision: "0",
+      images: [
+        { id: pim0, altText: "Front view" },
+        { id: pim1, altText: "Back view" },
+      ],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.gallery.revision).toBe("1");
+    expect(data.gallery.images[0].altText).toBe("Front view");
+    expect(data.gallery.images[1].altText).toBe("Back view");
+    expect(data.gallery.publicationIssues).toEqual([]);
+
+    // Verify database state
+    const [prod] = await db.select({ mediaRevision: products.mediaRevision }).from(products).where(eq(products.id, productId));
+    expect(prod.mediaRevision).toBe(BigInt(1));
+
+    const rows = await db.select({ id: productMedia.id, altText: productMedia.altText }).from(productMedia).where(eq(productMedia.productId, productId));
+    const byId = Object.fromEntries(rows.map((r) => [r.id, r.altText]));
+    expect(byId[pim0]).toBe("Front view");
+    expect(byId[pim1]).toBe("Back view");
+
+    // Verify audit log
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    const updateAudit = audits.find((a) => a.action === "catalog.product.gallery.update");
+    expect(updateAudit).toBeTruthy();
+    const diff = updateAudit?.diff as {
+      mediaRevision: string;
+      previousRevision: string;
+      nextRevision: string;
+      before: Array<{ id: string; position: number; altText: string }>;
+      after: Array<{ id: string; position: number; altText: string }>;
+    };
+    expect(diff.mediaRevision).toBe("1");
+    expect(diff.previousRevision).toBe("0");
+    expect(diff.nextRevision).toBe("1");
+    expect(diff.before).toEqual([
+      { id: pim0, position: 0, altText: "" },
+      { id: pim1, position: 1, altText: "Alt 1" },
+    ]);
+    expect(diff.after).toEqual([
+      { id: pim0, position: 0, altText: "Front view" },
+      { id: pim1, position: 1, altText: "Back view" },
+    ]);
+  });
+
+  it("detects no-op when alt text and order are identical: returns 200, unchanged revision, zero audit entries", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0, pim1] = await seedAttachments(productId, 2);
+
+    // Initial state: pim0 is "", pim1 is "Alt 1", revision is 0
+    const auditsBefore = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+
+    // Submit identical alt text and order
+    const payload = {
+      expectedRevision: "0",
+      images: [
+        { id: pim0, altText: "" },
+        { id: pim1, altText: "Alt 1" },
+      ],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.gallery.revision).toBe("0");
+
+    // DB revision remains 0
+    const [prod] = await db.select({ mediaRevision: products.mediaRevision }).from(products).where(eq(products.id, productId));
+    expect(prod.mediaRevision).toBe(BigInt(0));
+
+    // Zero new audit events
+    const auditsAfter = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    expect(auditsAfter.length).toBe(auditsBefore.length);
+  });
+
+  it("handles whitespace trimming in no-op detection (trimmed identical = no-op)", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0, pim1] = await seedAttachments(productId, 2);
+
+    // Submit with padding that trims to identical values
+    const payload = {
+      expectedRevision: "0",
+      images: [
+        { id: pim0, altText: "   " }, // trims to ""
+        { id: pim1, altText: "  Alt 1  " }, // trims to "Alt 1"
+      ],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.gallery.revision).toBe("0");
+
+    // No revision bump
+    const [prod] = await db.select({ mediaRevision: products.mediaRevision }).from(products).where(eq(products.id, productId));
+    expect(prod.mediaRevision).toBe(BigInt(0));
+  });
+
+  it("rejects stale revision with 409 STALE_GALLERY and leaves gallery unchanged", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "42", // Stale! Current is 0
+      images: [{ id: pim0, altText: "Updated alt" }],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe("STALE_GALLERY");
+
+    // DB remains unchanged
+    const [row] = await db.select({ altText: productMedia.altText }).from(productMedia).where(eq(productMedia.id, pim0));
+    expect(row.altText).toBe("");
+  });
+
+  it("rejects editing non-draft products with 409 Conflict", async () => {
+    const { token, csrf } = await staff();
+    for (const status of ["published", "archived"] as const) {
+      const productId = await createProductFixture("Non-draft", status);
+      const [pim0] = await seedAttachments(productId, 1);
+
+      const payload = {
+        expectedRevision: "0",
+        images: [{ id: pim0, altText: "New alt" }],
+        variantImages: [],
+      };
+
+      const req = makePutGalleryRequest(productId, payload, token, csrf);
+      const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+      expect(res.status).toBe(409);
+      const body = await res.json();
+      expect(body.error.message).toContain("Only drafts can be edited");
+    }
+  });
+
+  it("rejects missing, extra, and foreign image IDs with 422", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0, pim1] = await seedAttachments(productId, 2);
+
+    // 1. Missing image (only 1 provided instead of 2)
+    const missingRes = await putGallery(
+      makePutGalleryRequest(productId, {
+        expectedRevision: "0",
+        images: [{ id: pim0, altText: "Only one" }],
+        variantImages: [],
+      }, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(missingRes.status).toBe(422);
+
+    // 2. Extra image ID
+    const extraRes = await putGallery(
+      makePutGalleryRequest(productId, {
+        expectedRevision: "0",
+        images: [
+          { id: pim0, altText: "One" },
+          { id: pim1, altText: "Two" },
+          { id: "pim_extra_id", altText: "Three" },
+        ],
+        variantImages: [],
+      }, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(extraRes.status).toBe(422);
+
+    // 3. Foreign image ID (same count, but foreign ID)
+    const foreignRes = await putGallery(
+      makePutGalleryRequest(productId, {
+        expectedRevision: "0",
+        images: [
+          { id: pim0, altText: "One" },
+          { id: "pim_foreign_different", altText: "Two" },
+        ],
+        variantImages: [],
+      }, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(foreignRes.status).toBe(422);
+  });
+
+  it("rejects duplicate image IDs in payload with 422", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 2);
+
+    const dupRes = await putGallery(
+      makePutGalleryRequest(productId, {
+        expectedRevision: "0",
+        images: [
+          { id: pim0, altText: "First" },
+          { id: pim0, altText: "Duplicate" },
+        ],
+        variantImages: [],
+      }, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(dupRes.status).toBe(422);
+  });
+
+  it("rejects oversized alt text (>500 chars) with 422 and field error images.<id>.altText", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "0",
+      images: [{ id: pim0, altText: "a".repeat(501) }],
+      variantImages: [],
+    };
+
+    const res = await putGallery(
+      makePutGalleryRequest(productId, payload, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const detail = body.error.details?.find((d: { field: string }) => d.field === `images.${pim0}.altText`);
+    expect(detail).toBeTruthy();
+  });
+
+  it("rejects control characters in alt text with 422 and field error images.<id>.altText", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "0",
+      images: [{ id: pim0, altText: "bad\x07alt" }],
+      variantImages: [],
+    };
+
+    const res = await putGallery(
+      makePutGalleryRequest(productId, payload, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    const detail = body.error.details?.find((d: { field: string }) => d.field === `images.${pim0}.altText`);
+    expect(detail).toBeTruthy();
+  });
+
+  it("rejects non-empty variantImages with 422 (deferred to E04-03-06)", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "0",
+      images: [{ id: pim0, altText: "Valid" }],
+      variantImages: [{ variantId: "var_1", imageId: pim0 }],
+    };
+
+    const res = await putGallery(
+      makePutGalleryRequest(productId, payload, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("rejects unknown properties in payload with 422 due to strict schema", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "0",
+      images: [{ id: pim0, altText: "Valid" }],
+      variantImages: [],
+      unknownField: "malicious",
+    };
+
+    const res = await putGallery(
+      makePutGalleryRequest(productId, payload, token, csrf),
+      { params: Promise.resolve({ id: productId }) }
+    );
+    expect(res.status).toBe(422);
+  });
+
+  it("handles competing revision writes concurrently with row locking: one succeeds, one gets 409", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const req1 = makePutGalleryRequest(
+      productId,
+      { expectedRevision: "0", images: [{ id: pim0, altText: "First worker" }], variantImages: [] },
+      token,
+      csrf
+    );
+    const req2 = makePutGalleryRequest(
+      productId,
+      { expectedRevision: "0", images: [{ id: pim0, altText: "Second worker" }], variantImages: [] },
+      token,
+      csrf
+    );
+
+    const [res1, res2] = await Promise.all([
+      putGallery(req1, { params: Promise.resolve({ id: productId }) }),
+      putGallery(req2, { params: Promise.resolve({ id: productId }) }),
+    ]);
+
+    const statuses = [res1.status, res2.status].sort();
+    expect(statuses).toEqual([200, 409]);
+
+    // Revision incremented exactly once to 1
+    const [prod] = await db.select({ mediaRevision: products.mediaRevision }).from(products).where(eq(products.id, productId));
+    expect(prod.mediaRevision).toBe(BigInt(1));
+
+    // Exactly 1 gallery audit record written
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    const galleryAudits = audits.filter((a) => a.action === "catalog.product.gallery.update");
+    expect(galleryAudits).toHaveLength(1);
+  });
+
+  it("rejects guest, customer, and missing/invalid CSRF token", async () => {
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+    const validPayload = { expectedRevision: "0", images: [{ id: pim0, altText: "Alt" }], variantImages: [] };
+
+    // 1. Guest request (no cookie)
+    const guestReq = makePutGalleryRequest(productId, validPayload);
+    const guestRes = await putGallery(guestReq, { params: Promise.resolve({ id: productId }) });
+    expect(guestRes.status).toBe(401);
+
+    // 2. Non-catalog staff session
+    const nonCatalog = await staff("order_manager");
+    const nonCatalogReq = makePutGalleryRequest(productId, validPayload, nonCatalog.token, nonCatalog.csrf);
+    const nonCatalogRes = await putGallery(nonCatalogReq, { params: Promise.resolve({ id: productId }) });
+    expect(nonCatalogRes.status).toBe(403);
+
+    // 3. Staff session with missing CSRF
+    const { token } = await staff();
+    const noCsrfReq = makePutGalleryRequest(productId, validPayload, token, undefined);
+    const noCsrfRes = await putGallery(noCsrfReq, { params: Promise.resolve({ id: productId }) });
+    expect(noCsrfRes.status).toBe(403);
+
+    // 4. Staff session with invalid CSRF
+    const badCsrfReq = makePutGalleryRequest(productId, validPayload, token, "invalid-csrf-token");
+    const badCsrfRes = await putGallery(badCsrfReq, { params: Promise.resolve({ id: productId }) });
+    expect(badCsrfRes.status).toBe(403);
+  });
+
+  it("rejects payload exceeding 64 KiB with 413 PAYLOAD_TOO_LARGE", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+
+    // Large JSON > 64 KiB (65536 bytes)
+    const largePadding = "x".repeat(70 * 1024);
+    const payload = JSON.stringify({ expectedRevision: "0", images: [], padding: largePadding });
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(413);
+  });
+
+  it("rejects non-JSON content type with 415 UNSUPPORTED_MEDIA_TYPE", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+
+    const req = makePutGalleryRequest(productId, "plain text body", token, csrf, {
+      contentType: "text/plain",
+    });
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(415);
+  });
+
+  it("preserves blank alt text on draft save and returns publication issue for that image", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0, pim1] = await seedAttachments(productId, 2);
+
+    // Update pim1 to non-blank, but keep pim0 as ""
+    const payload = {
+      expectedRevision: "0",
+      images: [
+        { id: pim0, altText: "" },
+        { id: pim1, altText: "Valid alt for image 2" },
+      ],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.gallery.revision).toBe("1");
+    expect(data.gallery.images[0].altText).toBe("");
+    expect(data.gallery.images[1].altText).toBe("Valid alt for image 2");
+
+    // publicationIssues has exactly 1 entry for pim0
+    expect(data.gallery.publicationIssues).toEqual([
+      { field: `images.${pim0}.altText`, message: "Alt text is required before publication" },
+    ]);
+  });
+
+  it("rejects expectedRevision exceeding 64-bit integer limit (9223372036854775807n) with 422", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const [pim0] = await seedAttachments(productId, 1);
+
+    const payload = {
+      expectedRevision: "9223372036854775808",
+      images: [{ id: pim0, altText: "New alt" }],
+      variantImages: [],
+    };
+
+    const req = makePutGalleryRequest(productId, payload, token, csrf);
+    const res = await putGallery(req, { params: Promise.resolve({ id: productId }) });
+
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.error.code).toBe("UNPROCESSABLE_ENTITY");
+  });
+});
+

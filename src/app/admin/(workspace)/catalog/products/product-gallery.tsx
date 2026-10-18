@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { GalleryDto, GalleryImageDto } from "../../../../../modules/catalog/products/contracts/gallery";
 
 interface ProductGalleryProps {
@@ -11,6 +11,8 @@ interface ProductGalleryProps {
   onRetry: () => void;
   csrf?: string;
   onUploadSuccess?: (gallery: GalleryDto) => void;
+  onGalleryUpdate?: (gallery: GalleryDto) => void;
+  onDirtyChange?: (isDirty: boolean) => void;
 }
 
 export function ProductGallery(props: ProductGalleryProps) {
@@ -25,6 +27,8 @@ function ProductGalleryState({
   onRetry,
   csrf,
   onUploadSuccess,
+  onGalleryUpdate,
+  onDirtyChange,
 }: ProductGalleryProps) {
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [reloadKeys, setReloadKeys] = useState<Record<string, number>>({});
@@ -36,6 +40,45 @@ function ProductGalleryState({
   const uploadController = useRef<AbortController | null>(null);
   useLayoutEffect(() => () => { uploadController.current?.abort(); }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Alt text editing and dirty tracking
+  const [localAltTexts, setLocalAltTexts] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+  const [isStale, setIsStale] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const isDirty = (gallery?.images.some((img) => {
+    const local = localAltTexts[img.id];
+    return local !== undefined && local.trim() !== img.altText.trim();
+  })) ?? false;
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty);
+    return () => {
+      onDirtyChange?.(false);
+    };
+  }, [isDirty, onDirtyChange]);
+
+  const [prevRevision, setPrevRevision] = useState(gallery?.revision);
+  if (gallery?.revision !== prevRevision) {
+    setPrevRevision(gallery?.revision);
+    setSaveError(null);
+    setIsStale(false);
+  }
+
+  useEffect(() => {
+    if (!isDirty) return;
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [isDirty]);
 
   const handleImageError = (imageId: string) => {
     setFailedImages((prev) => ({ ...prev, [imageId]: true }));
@@ -59,7 +102,7 @@ function ProductGalleryState({
   };
 
   const executeUpload = async (fileToUpload: File, keyToUse: string) => {
-    if (!productId || loading || error || gallery?.productId !== productId) return;
+    if (!productId || loading || error || saving || gallery?.productId !== productId) return;
     const controller = new AbortController();
     uploadController.current = controller;
     let canRetry = true;
@@ -118,7 +161,9 @@ function ProductGalleryState({
         fileInputRef.current.value = "";
       }
 
-      if (onUploadSuccess && data.gallery) {
+      if (onGalleryUpdate && data.gallery) {
+        onGalleryUpdate(data.gallery);
+      } else if (onUploadSuccess && data.gallery) {
         onUploadSuccess(data.gallery);
       } else {
         onRetry();
@@ -136,13 +181,102 @@ function ProductGalleryState({
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !idempotencyKey || uploading) return;
+    if (!selectedFile || !idempotencyKey || uploading || saving) return;
+    if (isDirty) {
+      const confirmed = window.confirm("لديك تعديلات غير محفوظة في المعرض. سيؤدي رفع صورة جديدة إلى المتابعة وتحديث المعرض. هل تريد المتابعة؟");
+      if (!confirmed) return;
+    }
     await executeUpload(selectedFile, idempotencyKey);
   };
 
   const handleRetryUpload = async () => {
-    if (!selectedFile || !idempotencyKey || uploading) return;
+    if (!selectedFile || !idempotencyKey || uploading || saving) return;
+    if (isDirty) {
+      const confirmed = window.confirm("لديك تعديلات غير محفوظة في المعرض. سيؤدي رفع صورة جديدة إلى المتابعة وتحديث المعرض. هل تريد المتابعة؟");
+      if (!confirmed) return;
+    }
     await executeUpload(selectedFile, idempotencyKey);
+  };
+
+  const handleSaveGallery = async () => {
+    if (!productId || !gallery || !isDirty || saving) return;
+    setSaving(true);
+    setSaveError(null);
+    setSaveSuccess(null);
+    setIsStale(false);
+    setFieldErrors({});
+
+    const imagesPayload = gallery.images.map((img) => ({
+      id: img.id,
+      altText: localAltTexts[img.id] !== undefined ? localAltTexts[img.id] : img.altText,
+    }));
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (csrf) {
+        headers["X-CSRF-Token"] = csrf;
+      }
+
+      const res = await fetch(`/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/images`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          expectedRevision: gallery.revision,
+          images: imagesPayload,
+          variantImages: [],
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (res.status === 409) {
+          if (data?.error?.code === "STALE_GALLERY") {
+            setIsStale(true);
+            throw new Error("تم تعديل المعرض من قبل مستخدم أو عملية أخرى. يرجى مراجعة المعرض وإعادة المحاولة.");
+          }
+          throw new Error(data?.error?.message || "تعارض في حالة المنتج.");
+        }
+        if (res.status === 422) {
+          if (data?.error?.details && Array.isArray(data.error.details)) {
+            const errors: Record<string, string> = {};
+            for (const d of data.error.details) {
+              if (d.field) errors[d.field] = d.message;
+            }
+            setFieldErrors(errors);
+          }
+          throw new Error(data?.error?.message || "يرجى تصحيح الأخطاء المشار إليها.");
+        }
+        if (res.status === 401) {
+          throw new Error("انتهت الجلسة. سجل الدخول ثم أعد المحاولة؛ بياناتك محفوظة في النموذج.");
+        }
+        if (res.status >= 500) {
+          throw new Error("حدث خطأ في الخادم أثناء حفظ المعرض. أعد المحاولة.");
+        }
+        throw new Error(data?.error?.message || `فشل حفظ المعرض (${res.status})`);
+      }
+
+      const data = await res.json();
+      setLocalAltTexts({});
+      setFieldErrors({});
+      setSaveError(null);
+      setIsStale(false);
+      setSaveSuccess("تم حفظ المعرض بنجاح.");
+
+      if (onGalleryUpdate && data.gallery) {
+        onGalleryUpdate(data.gallery);
+      } else if (onUploadSuccess && data.gallery) {
+        onUploadSuccess(data.gallery);
+      } else {
+        onRetry();
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "حدث خطأ غير متوقع أثناء حفظ المعرض";
+      setSaveError(message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   if (!productId) {
@@ -162,11 +296,21 @@ function ProductGalleryState({
   return (
     <section
       className="space-y-4 rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs"
-      aria-busy={loading || uploading}
+      aria-busy={loading || uploading || saving}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-lg font-bold">معرض الصور</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold">معرض الصور</h3>
+            {isDirty && (
+              <span
+                className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800"
+                data-testid="gallery-dirty-badge"
+              >
+                تغييرات غير محفوظة
+              </span>
+            )}
+          </div>
           {gallery && (
             <p className="text-xs text-slate-500">
               مراجعة المعرض: {gallery.revision} ({activeImagesCount} من 10 صور)
@@ -174,33 +318,80 @@ function ProductGalleryState({
           )}
         </div>
 
-        {isMaxCapacity ? (
-          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-            تم بلوغ الحد الأقصى (10 صور)
-          </span>
-        ) : (
-          <form onSubmit={handleUploadSubmit} className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={handleFileChange}
-              disabled={uploading || loading || !!error || gallery?.productId !== productId}
-              className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
-              aria-label="اختر صورة للمنتج"
-              data-testid="gallery-upload-input"
-            />
-            <button
-              type="submit"
-              disabled={!selectedFile || !idempotencyKey || uploading || loading || !!error || gallery?.productId !== productId}
-              className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-              data-testid="gallery-upload-button"
-            >
-              {uploading ? "جارٍ الرفع…" : "رفع الصورة"}
-            </button>
-          </form>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={handleSaveGallery}
+            disabled={!isDirty || saving || uploading || loading || !!error || gallery?.productId !== productId}
+            className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+            data-testid="gallery-save-button"
+          >
+            {saving ? "جارٍ الحفظ…" : "حفظ المعرض"}
+          </button>
+
+          {isMaxCapacity ? (
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
+              تم بلوغ الحد الأقصى (10 صور)
+            </span>
+          ) : (
+            <form onSubmit={handleUploadSubmit} className="flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleFileChange}
+                disabled={uploading || saving || loading || !!error || gallery?.productId !== productId}
+                className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
+                aria-label="اختر صورة للمنتج"
+                data-testid="gallery-upload-input"
+              />
+              <button
+                type="submit"
+                disabled={!selectedFile || !idempotencyKey || uploading || saving || loading || !!error || gallery?.productId !== productId}
+                className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                data-testid="gallery-upload-button"
+              >
+                {uploading ? "جارٍ الرفع…" : "رفع الصورة"}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
+
+      {saveSuccess && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-800"
+          data-testid="gallery-save-success"
+        >
+          <p>{saveSuccess}</p>
+        </div>
+      )}
+
+      {saveError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-rose-300 bg-rose-50 p-4 text-sm text-rose-800"
+          data-testid="gallery-save-error"
+        >
+          <p>{saveError}</p>
+          {isStale && (
+            <button
+              type="button"
+              className="mt-2 text-xs font-semibold text-blue-700 underline"
+              onClick={() => {
+                setSaveError(null);
+                setIsStale(false);
+                onRetry();
+              }}
+              data-testid="gallery-reload-button"
+            >
+              إعادة تحميل المعرض
+            </button>
+          )}
+        </div>
+      )}
 
       {uploadError && (
         <div
@@ -214,7 +405,7 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold underline"
               onClick={handleRetryUpload}
-              disabled={uploading || loading || !!error || gallery?.productId !== productId}
+              disabled={uploading || saving || loading || !!error || gallery?.productId !== productId}
               data-testid="gallery-upload-retry"
             >
               إعادة المحاولة
@@ -261,11 +452,11 @@ function ProductGalleryState({
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
           {gallery.images.map((image: GalleryImageDto) => {
             const isPrimary = image.id === gallery.primaryImageId;
-            const hasIssue = gallery.publicationIssues.some(
-              (issue: { field: string; message: string }) => issue.field === `images.${image.id}.altText`
-            );
+            const currentAlt = localAltTexts[image.id] !== undefined ? localAltTexts[image.id] : image.altText;
+            const isBlank = currentAlt.trim() === "";
             const isFailed = failedImages[image.id];
             const reloadKey = reloadKeys[image.id] || 0;
+            const fieldError = fieldErrors[`images.${image.id}.altText`];
 
             return (
               <div
@@ -289,7 +480,7 @@ function ProductGalleryState({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={`${image.previewUrl}?v=${reloadKey}`}
-                      alt={image.altText || "معاينة صورة المنتج"}
+                      alt={currentAlt.trim() || "معاينة صورة المنتج"}
                       className="h-full w-full object-cover"
                       onError={() => handleImageError(image.id)}
                     />
@@ -302,12 +493,60 @@ function ProductGalleryState({
                   )}
                 </div>
 
-                <div className="mt-2 space-y-1">
-                  <p className="truncate text-xs text-slate-600" title={image.altText || "(بدون نص بديل)"}>
-                    {image.altText ? `النص: ${image.altText}` : "(بدون نص بديل)"}
+                <div className="mt-2 space-y-1.5">
+                  <p className="truncate text-xs text-slate-500" title={currentAlt || "(بدون نص بديل)"}>
+                    {currentAlt ? `النص: ${currentAlt}` : "(بدون نص بديل)"}
                   </p>
-                  {hasIssue && (
-                    <span className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+
+                  <label
+                    htmlFor={`alt-text-${image.id}`}
+                    className="block text-xs font-medium text-slate-700"
+                  >
+                    النص البديل
+                  </label>
+                  <input
+                    id={`alt-text-${image.id}`}
+                    type="text"
+                    value={currentAlt}
+                    maxLength={500}
+                    disabled={saving || loading || !!error || gallery?.productId !== productId}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setLocalAltTexts((prev) => ({ ...prev, [image.id]: val }));
+                      setSaveSuccess(null);
+                      if (fieldErrors[`images.${image.id}.altText`]) {
+                        setFieldErrors((prev) => {
+                          const next = { ...prev };
+                          delete next[`images.${image.id}.altText`];
+                          return next;
+                        });
+                      }
+                    }}
+                    className={`block w-full rounded-md border p-1.5 text-xs text-slate-900 shadow-xs focus:ring-1 focus:outline-none ${
+                      fieldError ? "border-rose-400 focus:border-rose-500 focus:ring-rose-500" : "border-slate-300 focus:border-blue-600 focus:ring-blue-600"
+                    }`}
+                    aria-label={`النص البديل للصورة ${image.position + 1}`}
+                    aria-invalid={!!fieldError}
+                    aria-describedby={fieldError ? `error-images-${image.id}-altText` : undefined}
+                    data-testid={`gallery-alt-input-${image.id}`}
+                  />
+
+                  {fieldError && (
+                    <p
+                      id={`error-images-${image.id}-altText`}
+                      role="alert"
+                      className="text-[11px] text-rose-600"
+                      data-testid={`gallery-alt-error-${image.id}`}
+                    >
+                      {fieldError}
+                    </p>
+                  )}
+
+                  {isBlank && (
+                    <span
+                      className="inline-block rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800"
+                      data-testid={`gallery-readiness-warning-${image.id}`}
+                    >
                       مطلوب نص بديل للنشر
                     </span>
                   )}
@@ -320,4 +559,3 @@ function ProductGalleryState({
     </section>
   );
 }
-
