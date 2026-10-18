@@ -48,3 +48,4 @@ Expected output:
 - Route, Gallery, and Manager tests: 106 passed (100%).
 - Typecheck: 0 errors.
 - Lint: 0 errors.
+
