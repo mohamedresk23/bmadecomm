@@ -167,3 +167,9 @@ The full default Vitest run completed with 523 passed, eight failed, one skipped
 - Final full run `npm.cmd test -- --pool=threads`: 534 passed, seven failed, one skipped, one todo, 72 files, 243.12 seconds. The failures are the six previously identified baseline migration assertions plus the sandbox-only provision-owner temporary-directory removal failure. No upload/remediation test failed. The isolated escalated provision-owner rerun passed.
 - Typecheck passed, ESLint passed with one existing Upload.tsx image warning, and the final Webpack production build passed after review patches. Default Turbopack's inaccessible old BMAD directory remains an environment/build limitation.
 - All review patch groups are resolved. General database/pool cancellation and old migration-test expectations are recorded as deferred work. Story remains review; the manual checks above still require human/browser acceptance.
+
+### Migration-test follow-up - 2026-10-18
+
+The six stale migration assertions are now repaired without changing production migration SQL. Tests verify 0016 one-step removal, 0016/0015 two-step removal, retained product/variant data, media_revision removal/restoration, and restored Draft defaults. Independent review's three coverage findings were all addressed.
+
+Final full run outside the sandbox: 71 test files passed, one skipped; 541 tests passed, one skipped and one todo; exit 0 in 253.12 seconds. TypeScript and file-scoped ESLint passed. The earlier sandbox-only provision-owner cleanup failure did not recur. See spec-refresh-migration-regressions.md. Story 4-303 remains review pending human acceptance; general database/pool cancellation is still deferred.

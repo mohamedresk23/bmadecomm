@@ -48,3 +48,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-03-upload-review-remediation.md`
   summary: Refresh existing migration tests for migrations 0015 and 0016.
   evidence: Full-suite verification found six assertions in unchanged migrate.test.ts and product-drafts-migration.test.ts still expecting 0014 as the latest migration or a one-step rollback target, although baseline already includes 0015_product_gallery and 0016_upload_rate_limit.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-refresh-migration-regressions.md`
+  summary: Resolved the migration-test maintenance item above.
+  evidence: Corrected rollback scopes and added data/column/default preservation assertions. Full verification outside the sandbox passed 541 tests with no failures on 2026-10-18; one existing skip and one todo remain.
