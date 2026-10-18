@@ -3,7 +3,7 @@ import { boundedJson } from "../../shared/api/bounded-json";
 import { File as NodeFile } from "node:buffer";
 
 export const MAX_MEDIA_REQUEST_BYTES = 5_308_416;
-export async function readMediaFile(request: Request): Promise<NodeFile> {
+export async function readMediaFile(request: Request, options: { maxBytes?: number; deadlineMs?: number } = {}): Promise<NodeFile> {
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("multipart/form-data;")) throw new ApiError(415, "UNSUPPORTED_MEDIA_TYPE", "Multipart body required");
   const reader = request.body?.getReader();
   if (!reader) throw ApiError.badRequest("File required");
@@ -12,7 +12,7 @@ export async function readMediaFile(request: Request): Promise<NodeFile> {
   let timer!: ReturnType<typeof setTimeout>;
   let abort!: () => void;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new ApiError(408, "REQUEST_TIMEOUT", "Request body timed out")), 10_000);
+    timer = setTimeout(() => reject(new ApiError(408, "REQUEST_TIMEOUT", "Request body timed out")), options.deadlineMs ?? 10_000);
     abort = () => reject(new ApiError(400, "REQUEST_ABORTED", "Request aborted"));
   });
   request.signal.addEventListener("abort", abort, { once: true });
@@ -22,7 +22,7 @@ export async function readMediaFile(request: Request): Promise<NodeFile> {
       const { value, done } = await Promise.race([reader.read(), deadline]);
       if (done) break;
       total += value.byteLength;
-      if (total > MAX_MEDIA_REQUEST_BYTES) throw new ApiError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
+      if (total > (options.maxBytes ?? MAX_MEDIA_REQUEST_BYTES)) throw new ApiError(413, "PAYLOAD_TOO_LARGE", "Request body too large");
       chunks.push(value);
     }
   } catch (error) { void reader.cancel().catch(() => {}); throw error; }

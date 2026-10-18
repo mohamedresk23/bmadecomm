@@ -13,13 +13,18 @@ describe("product drafts migration", () => {
       await database.execute(sql`INSERT INTO products(id, name) VALUES ('migration-product', 'Draft')`);
       const before = await client.query<{ status: string }>("SELECT status FROM products");
       expect(before.rows[0].status).toBe("draft");
-      const result = await rollbackMigration({ db: database, steps: 1, quiet: true });
-      expect(result.rolledBack).toEqual(["0014_product_drafts"]);
+      // Remove dependents before reversing the product migration itself.
+      const result = await rollbackMigration({ db: database, target: "0013_categories", quiet: true });
+      expect(result.rolledBack).toEqual(["0016_upload_rate_limit", "0015_product_gallery", "0014_product_drafts"]);
       const tables = await client.query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('products','variants','variant_attributes','product_categories')");
       expect(tables.rows).toHaveLength(0);
-      await runMigrations({ db: database, quiet: true });
+      const reapplied = await runMigrations({ db: database, quiet: true });
+      expect(reapplied.applied).toEqual(["0014_product_drafts", "0015_product_gallery", "0016_upload_rate_limit"]);
       const restored = await client.query("SELECT table_name FROM information_schema.tables WHERE table_name IN ('products','variants','variant_attributes','product_categories')");
       expect(restored.rows).toHaveLength(4);
+      await database.execute(sql`INSERT INTO products(id, name) VALUES ('restored-product', 'Restored draft')`);
+      const defaults = await client.query<{ status: string; media_revision: string }>("SELECT status, media_revision::text FROM products WHERE id = 'restored-product'");
+      expect(defaults.rows).toEqual([{ status: "draft", media_revision: "0" }]);
     } finally { await client.close(); }
   });
 });

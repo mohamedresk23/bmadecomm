@@ -46,3 +46,12 @@ describe("bounded media request",()=>{
     await expect(readPublishId(req({id:"abc",unexpected:true}))).rejects.toMatchObject({statusCode:400});
   });
 });
+
+
+it("supports catalog deadline and independent configured body bound", async () => {
+  vi.useFakeTimers();
+  const req=new Request("http://local.test",{method:"POST",headers:{"content-type":"multipart/form-data; boundary=x"},body:new ReadableStream({start(c){c.enqueue(new Uint8Array([1]));}}),duplex:"half"} as RequestInit);
+  try { const result=readMediaFile(req,{deadlineMs:15000,maxBytes:12}); const rejected=expect(result).rejects.toMatchObject({statusCode:408}); await vi.advanceTimersByTimeAsync(14999); expect(req.body!.locked).toBe(true); await vi.advanceTimersByTimeAsync(1); await rejected; }
+  finally {vi.useRealTimers();}
+  await expect(readMediaFile(new Request("http://local.test",{method:"POST",headers:{"content-type":"multipart/form-data; boundary=x"},body:new Uint8Array(13)}),{maxBytes:12})).rejects.toMatchObject({statusCode:413});
+});

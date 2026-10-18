@@ -9,6 +9,7 @@ import { db } from "../../../../../db";
 import { auditEvents, sessions, storeSettings } from "../../../../../db/schema";
 import { GET, POST } from "../../../../api/v1/admin/catalog/products/route";
 import { GET as detail, PUT } from "../../../../api/v1/admin/catalog/products/[id]/route";
+import { GET as galleryGet } from "../../../../api/v1/admin/catalog/products/[id]/images/route";
 import { GET as publicList } from "../../../../api/v1/store/products/route";
 import { GET as publicDetail } from "../../../../api/v1/store/products/[id]/route";
 import { getProductById } from "../../../../../modules/catalog/products/application/product-service";
@@ -25,6 +26,10 @@ async function connect() {
     const req = new Request(new URL(url, "http://localhost:3000"), { ...options, headers });
     const id = url.split("/")[6];
     const context = { params: Promise.resolve({ id }) };
+    if (url.endsWith("/images")) {
+      if (options?.method === "POST") return Response.json({success:true,gallery:{productId:id,revision:"1",primaryImageId:null,images:[],variantImages:[],publicationIssues:[]}}, {status:201});
+      return galleryGet(req,context);
+    }
     const response = options?.method === "POST" ? await POST(req) : options?.method === "PUT" ? await PUT(req, context) : id ? await detail(req, context) : await GET(req);
     if (options?.method === "POST" && response.status === 201) fixture.productIds.push((await response.clone().json()).product.id);
     return response;
@@ -38,6 +43,18 @@ function enterSimple(sku = "UI-ONE") {
   change("اسم المنتج", "قميص"); change("الوصف", "قطن"); fireEvent.click(screen.getByLabelText("ملابس"));
   change("SKU 1", sku); change("السعر 1", "0.29"); change("سعر المقارنة 1", "1.00");
 }
+it("loads gallery after first save, passes CSRF to upload, applies gallery callback, and preserves form edits",async()=>{
+  const transport=await connect();render(<ProductManager/>);await ready();enterSimple("FIRST-UPLOAD");
+  fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+  await waitFor(()=>expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(false));
+  const name=screen.getByLabelText("\u0627\u0633\u0645 \u0627\u0644\u0645\u0646\u062a\u062c") as HTMLInputElement;fireEvent.change(name,{target:{value:"Local unsaved edit"}});
+  fireEvent.change(screen.getByTestId("gallery-upload-input"),{target:{files:[new File(["x"],"x.png",{type:"image/png"})]}});fireEvent.click(screen.getByTestId("gallery-upload-button"));
+  await waitFor(()=>expect(transport.mock.calls.some(([url,options])=>url.endsWith("/images")&&options?.method==="POST")).toBe(true));
+  const upload=transport.mock.calls.find(([url,options])=>url.endsWith("/images")&&options?.method==="POST")!;
+  expect(new Headers(upload[1]?.headers).get("X-CSRF-Token")).toBeTruthy();
+  await waitFor(()=>expect(screen.getByText(/1 \(0/)).toBeTruthy());expect(name.value).toBe("Local unsaved edit");
+});
+
 describe("ProductManager with real API handlers and migrated database", () => {
   it("saves a generated matrix, reloads, edits, reloads again, and isolates public reads", async () => {
     await connect();

@@ -9,7 +9,7 @@
 # Never regenerate globally from this scoped input if other epics are later added:
 # include their authoritative inputs too and reconcile dry-run orphan reports first.
 generated: '10-14-2026 14:41'
-last_updated: '10-14-2026 16:00'
+last_updated: '10-18-2026 16:10'
 project: bmadecomm
 project_key: NOKEY
 tracking_system: file-system
@@ -19,14 +19,18 @@ readiness_gate: CONCERNS
 development_status:
   # Scoped grouping not started; does not assert the whole Epic 04 is unstarted.
   epic-4: in-progress
-  # 01 implemented and independently reviewed; human acceptance remains pending.
+  # 01 implemented, independently reviewed, and accepted by human approval.
   # Logo-CSRF prerequisite verified; ten-second actual-stop policy adopted.
-  # Owner authorized E04-03-01 implementation; later stories remain backlog.
-  # See spec-e04-03-01-secure-media-preparation.md; do not promote from file existence.
-  4-301-secure-and-validate-existing-media-upload: review
-  4-302-read-and-privately-preview-a-product-gallery: backlog
-  4-303-upload-a-draft-image-with-safe-retry: backlog
-  4-304-save-alt-text-and-show-publication-readiness: backlog
+  # Owner authorized E04-03-01 and accepted it; later stories remain backlog.
+  # See spec-e04-03-01-secure-media-preparation.md.
+  # 02 implemented, verified on real PostgreSQL 18.6, walkthrough reviewed, and accepted by human approval.
+  # See spec-e04-03-02-gallery-read-and-private-preview.md, verification-e04-03-02.md, and walkthrough-e04-03-02.md.
+  # 03 implemented, verified on real PostgreSQL 18.6 multi-process concurrency, reviewed and accepted by human approval.
+  # See spec-e04-03-03-upload-draft-image.md, verification-e04-03-03.md, and walkthrough-e04-03-03.md.
+  4-301-secure-and-validate-existing-media-upload: done
+  4-302-read-and-privately-preview-a-product-gallery: done
+  4-303-upload-a-draft-image-with-safe-retry: done
+  4-304-save-alt-text-and-show-publication-readiness: ready-for-dev
   4-305-reorder-the-gallery-accessibly: backlog
   4-306-map-images-to-variants-without-losing-assignments: backlog
   4-307-remove-gallery-images-while-retaining-history: backlog

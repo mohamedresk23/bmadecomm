@@ -17,7 +17,7 @@ describe("independent deployment media storage",()=>{
         vi.spyOn(handle,"close").mockRejectedValueOnce(new Error("injected close failure"));
         return handle;
       });
-      const operation=()=>location==="private"?adapter.savePrivate("new.png",Buffer.from("new")):adapter.publish("new.png");
+      const operation=()=>location==="private"?adapter.savePrivate("new.png",Buffer.from("new"),{requestId:"req-partial-write"}):adapter.publish("new.png");
       await expect(operation()).rejects.toThrow("injected close failure");
       await expect(fs.stat(path.join(root,location==="private"?"storage/private":"public/uploads","new.png"))).rejects.toMatchObject({code:"ENOENT"});
       expect((await fs.readFile(path.join(root,"public/uploads/historical.png"))).toString()).toBe("retained");
@@ -30,6 +30,9 @@ describe("independent deployment media storage",()=>{
       const log=JSON.parse((await fs.readFile(path.join(root,"storage/private/orphan-recovery.jsonl"),"utf8")).trim());
       expect(log).toMatchObject({key:"new.png",location});expect(Number.isFinite(Date.parse(log.time))).toBe(true);
       expect(Object.keys(log).sort()).toEqual(["key","location","time"]);
+      const recovery=JSON.parse((await fs.readFile(path.join(root,".local/orphans.log"),"utf8")).trim());
+      expect(recovery).toMatchObject({key:"new.png",location,path:path.join(root,location==="private"?"storage/private":"public/uploads","new.png")});
+      if(location==="private") expect(recovery.requestId).toBe("req-partial-write");
     }finally{
       vi.restoreAllMocks();
       if(!path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep)) throw new Error("Unsafe fixture root");
@@ -51,4 +54,13 @@ describe("independent deployment media storage",()=>{
       await fs.rm(root,{recursive:true,force:true});
     }
   });
+});
+
+
+it.each(["orphans.log","orphan-recovery.jsonl"])("attempts both recovery destinations when %s fails",async failed=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),"media-log-failure-"));const adapter=new LocalFileSystemAdapter(root);const append=fs.appendFile.bind(fs);
+  const spy=vi.spyOn(fs,"appendFile").mockImplementation(async(file,...args)=>{if(String(file).endsWith(failed))throw new Error("injected log failure");return append(file,...args);});
+  try{await expect(adapter.recordOrphan("new.png","private",{requestId:"req-recovery"})).rejects.toThrow("injected log failure");expect(spy).toHaveBeenCalledTimes(2);
+    const retained=failed==="orphans.log"?path.join(root,"storage/private/orphan-recovery.jsonl"):path.join(root,".local/orphans.log");expect(JSON.parse((await fs.readFile(retained,"utf8")).trim()).key).toBe("new.png");
+  }finally{vi.restoreAllMocks();if(!path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep))throw new Error("Unsafe fixture root");await fs.rm(root,{recursive:true,force:true});}
 });

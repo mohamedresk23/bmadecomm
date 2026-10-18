@@ -5,7 +5,7 @@ import path from "node:path";
 import {randomUUID} from "node:crypto";
 import {eq} from "drizzle-orm";
 import {db} from "../../db";
-import {media} from "../../db/schema";
+import {media,productMedia,products} from "../../db/schema";
 import {setupTestDb} from "../../test-utils/db";
 import {LocalFileSystemAdapter,storage} from "./storage";
 import {publishMedia} from "./upload";
@@ -26,11 +26,24 @@ beforeEach(async()=>{
 });
 afterEach(async()=>{
   vi.restoreAllMocks();
+  await db.delete(productMedia).where(eq(productMedia.mediaId,id));
+  await db.delete(products).where(eq(products.id,id));
   await db.delete(media).where(eq(media.id,id));
   if(!path.resolve(root).startsWith(path.resolve(os.tmpdir())+path.sep)) throw new Error("Unsafe fixture root");
   await fs.rm(root,{recursive:true,force:true});
 });
 describe("real explicit publication and compensation",()=>{
+  it.each(["published", "archived"])("allows media owned by a %s product",async(status)=>{
+    await db.insert(products).values({id,name:"Publication fixture",status});
+    await db.insert(productMedia).values({id,productId:id,mediaId:id,sortOrder:0});
+    expect(await publishMedia(id)).toEqual({id,url:`/uploads/${filename}`});
+    expect((await fs.readFile(path.join(root,"public/uploads",filename))).toString()).toBe("private-fixture");
+    expect((await db.select().from(media).where(eq(media.id,id)))[0].status).toBe("active");
+  });
+  it("preserves missing media 404",async()=>{
+    await expect(publishMedia(randomUUID())).rejects.toMatchObject({statusCode:404,message:"Media not found"});
+    expect(storage.publish).not.toHaveBeenCalled();
+  });
   it("publishes private bytes, activates row and remains idempotent",async()=>{
     expect(await publishMedia(id)).toEqual({id,url:`/uploads/${filename}`});
     expect((await fs.readFile(path.join(root,"public/uploads",filename))).toString()).toBe("private-fixture");

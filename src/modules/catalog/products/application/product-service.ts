@@ -18,7 +18,17 @@ async function selectAggregates(db: DbContext, publishedOnly: boolean, id?: stri
     .from(products)
     .where(and(id ? eq(products.id, id) : undefined, publishedOnly ? eq(products.status, "published") : id ? undefined : eq(products.status, "draft")))
     .orderBy(asc(products.createdAt), asc(products.id));
-  return rows.map(({ product, categoryIds, variantRows }) => ({ ...product, createdAt: product.createdAt.toISOString(), updatedAt: product.updatedAt.toISOString(), categoryIds, variants: variantRows }));
+  return rows.map(({ product, categoryIds, variantRows }) => {
+    const { mediaRevision: _mediaRevision, ...rest } = product;
+    void _mediaRevision;
+    return {
+      ...rest,
+      createdAt: product.createdAt.toISOString(),
+      updatedAt: product.updatedAt.toISOString(),
+      categoryIds,
+      variants: variantRows,
+    };
+  });
 }
 export async function getProductById(db: DbContext, id: string, publishedOnly = false): Promise<ProductDto> {
   const [product] = await selectAggregates(db, publishedOnly, id);
