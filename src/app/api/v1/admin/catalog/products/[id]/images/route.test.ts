@@ -27,6 +27,7 @@ import { LocalFileSystemAdapter, storage } from "../../../../../../../../lib/med
 import * as auditModule from "../../../../../../../../shared/authz/audit";
 import { GET as getGallery, POST as postImage } from "./route";
 import { GET as getPreview } from "./[imageId]/content/route";
+import { POST as publishImage } from "../../../../../../media/publish/route";
 
 const isolated = { root: "", adapter: null as unknown as LocalFileSystemAdapter };
 const createdUsers: string[] = [];
@@ -46,6 +47,7 @@ beforeEach(async () => {
   vi.spyOn(storage, "savePrivate").mockImplementation((filename: string, buf: Buffer) => isolated.adapter.savePrivate(filename, buf));
   vi.spyOn(storage, "removePrivate").mockImplementation((filename: string) => isolated.adapter.removePrivate(filename));
   vi.spyOn(storage, "recordOrphan").mockImplementation((filename: string, loc) => isolated.adapter.recordOrphan(filename, loc));
+  vi.spyOn(storage, "publish").mockImplementation((filename: string) => isolated.adapter.publish(filename));
 });
 
 afterEach(async () => {
@@ -112,8 +114,7 @@ async function createProductFixture(name = "Test Draft", status: "draft" | "publ
   return id;
 }
 
-async function createMediaFixture(filename: string, bytes: Buffer = Buffer.from("test-image-content")) {
-  const id = `med_${randomUUID().slice(0, 12)}`;
+async function createMediaFixture(filename: string, bytes: Buffer = Buffer.from("test-image-content"), id = `med_${randomUUID().slice(0, 12)}`) {
   createdMedia.push(id);
   await db.insert(media).values({
     id,
@@ -131,6 +132,55 @@ async function createValidImageBytes(width = 10, height = 10, format: "png" | "j
     .toFormat(format)
     .toBuffer();
 }
+
+describe("generic publication of Draft product media", () => {
+  it.each([
+    { status: "pending", removed: false },
+    { status: "active", removed: false },
+    { status: "pending", removed: true },
+  ])("rejects $status Draft media (removed=$removed) without public storage or mutation", async ({ status, removed }) => {
+    const { token, csrf } = await staff("owner");
+    const productId = await createProductFixture();
+    const filename = `${randomUUID()}.png`;
+    const mediaId = await createMediaFixture(filename, Buffer.from("test-image-content"), randomUUID().replaceAll("-", ""));
+    await db.update(media).set({ status }).where(eq(media.id, mediaId));
+    if (status === "active") await isolated.adapter.publish(filename);
+    const publishedOwner = await createProductFixture("Shared published owner", "published");
+    await db.insert(productMedia).values({
+      id: randomUUID(), productId: publishedOwner, mediaId, sortOrder: 0,
+    });
+    await db.insert(productMedia).values({
+      id: randomUUID(), productId, mediaId, sortOrder: 0,
+      removedAt: removed ? new Date() : null,
+    });
+
+    const response = await publishImage(new Request(`${staffConfig().origin}/api/media/publish`, {
+      method: "POST",
+      headers: {
+        Origin: staffConfig().origin,
+        Cookie: `__Host-staff-session=${token}`,
+        "X-CSRF-Token": csrf,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ id: mediaId }),
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: {
+      code: "CONFLICT",
+      message: "Draft product media cannot be published through generic publish endpoint",
+    } });
+    expect(storage.publish).not.toHaveBeenCalled();
+    expect((await db.select().from(media).where(eq(media.id, mediaId)))[0].status).toBe(status);
+    expect(await isolated.adapter.readPrivate(filename)).toEqual(Buffer.from("test-image-content"));
+    const publicPath = path.join(isolated.root, "public/uploads", filename);
+    if (status === "active") {
+      expect(await fs.readFile(publicPath)).toEqual(Buffer.from("test-image-content"));
+    } else {
+      await expect(fs.stat(publicPath)).rejects.toMatchObject({ code: "ENOENT" });
+    }
+  });
+});
 
 function makeUploadRequest(
   productId: string,
