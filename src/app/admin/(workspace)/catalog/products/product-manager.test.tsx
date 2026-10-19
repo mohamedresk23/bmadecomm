@@ -56,6 +56,37 @@ it("loads gallery after first save, passes CSRF to upload, applies gallery callb
 });
 
 describe("ProductManager with real API handlers and migrated database", () => {
+  it("retains local gallery order and descriptions when saving unrelated product fields", async () => {
+    const transport = await connect(); render(<ProductManager />); await ready(); enterSimple("GALLERY-PRODUCT-SAVE");
+    fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+    await waitFor(() => expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(false));
+    const productId = fixture.productIds[0];
+    const ids = ["product-save-gallery-a", "product-save-gallery-b"];
+    for (const [index, id] of ids.entries()) {
+      await db.insert(media).values({ id, filename: `${id}.png`, mimeType: "image/png", size: 10, status: "pending" });
+      await db.insert(productMedia).values({ id, productId, mediaId: id, sortOrder: index, altText: `Saved ${id}` });
+    }
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
+      await screen.findByTestId(`gallery-alt-input-${ids[0]}`);
+      fireEvent.click(screen.getByTestId(`gallery-move-earlier-${ids[1]}`));
+      fireEvent.change(screen.getByTestId(`gallery-alt-input-${ids[0]}`), { target: { value: "Unsaved gallery description" } });
+      change("الوصف", "Saved unrelated description");
+      const before = transport.mock.calls.filter(([url]) => url.endsWith("/images")).length;
+      fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+      await waitFor(() => expect((screen.getByRole("button", { name: "حفظ المسودة" }) as HTMLButtonElement).disabled).toBe(false));
+      expect((await getProductById(db, productId)).description).toBe("Saved unrelated description");
+      expect(transport.mock.calls.filter(([url]) => url.endsWith("/images"))).toHaveLength(before);
+      expect(screen.getAllByTestId(/^gallery-image-/).map(node => node.getAttribute("data-testid"))).toEqual([`gallery-image-${ids[1]}`, `gallery-image-${ids[0]}`]);
+      expect((screen.getByTestId(`gallery-alt-input-${ids[0]}`) as HTMLInputElement).value).toBe("Unsaved gallery description");
+      expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+    } finally {
+      for (const id of ids) {
+        await db.delete(productMedia).where(eq(productMedia.id, id));
+        await db.delete(media).where(eq(media.id, id));
+      }
+    }
+  });
   it("saves a generated matrix, reloads, edits, reloads again, and isolates public reads", async () => {
     await connect();
     const view = render(<ProductManager />); await ready();

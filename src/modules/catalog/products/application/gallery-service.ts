@@ -23,17 +23,10 @@ import {
 
 
 export async function getGalleryByProductId(db: DbContext, productId: string): Promise<GalleryDto> {
-  const [product] = await db.select({
-    id: products.id,
-    mediaRevision: products.mediaRevision,
-  }).from(products).where(eq(products.id, productId));
-
-  if (!product) {
-    throw ApiError.notFound("Product not found");
-  }
-
-  // Active attachments ordered by sort_order
+  // Revision and attachments share one statement snapshot, including empty galleries.
   const rows = await db.select({
+    productId: products.id,
+    mediaRevision: products.mediaRevision,
     id: productMedia.id,
     mediaId: productMedia.mediaId,
     sortOrder: productMedia.sortOrder,
@@ -41,19 +34,22 @@ export async function getGalleryByProductId(db: DbContext, productId: string): P
     mimeType: media.mimeType,
     size: media.size,
   })
-    .from(productMedia)
-    .innerJoin(media, eq(productMedia.mediaId, media.id))
-    .where(and(eq(productMedia.productId, productId), isNull(productMedia.removedAt)))
+    .from(products)
+    .leftJoin(productMedia, and(eq(productMedia.productId, products.id), isNull(productMedia.removedAt)))
+    .leftJoin(media, eq(productMedia.mediaId, media.id))
+    .where(eq(products.id, productId))
     .orderBy(asc(productMedia.sortOrder), asc(productMedia.createdAt));
 
-  const images = rows.map((row) => ({
-    id: row.id,
-    mediaId: row.mediaId,
-    position: row.sortOrder,
-    altText: row.altText,
-    mimeType: row.mimeType,
-    size: row.size,
-    previewUrl: `/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(row.id)}/content`,
+  if (!rows.length) throw ApiError.notFound("Product not found");
+  const product = rows[0];
+  const images = rows.filter(row => row.id !== null).map((row) => ({
+    id: row.id!,
+    mediaId: row.mediaId!,
+    position: row.sortOrder!,
+    altText: row.altText!,
+    mimeType: row.mimeType!,
+    size: row.size!,
+    previewUrl: `/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(row.id!)}/content`,
   }));
 
   const primaryImageId = images.length > 0 ? images[0].id : null;
@@ -67,7 +63,7 @@ export async function getGalleryByProductId(db: DbContext, productId: string): P
     }));
 
   return {
-    productId: product.id,
+    productId: product.productId,
     revision: product.mediaRevision.toString(),
     primaryImageId,
     images,
@@ -532,11 +528,18 @@ export async function updateGallery(
     const orderChanged = payload.images.some((img, idx) => img.id !== activeRows[idx].id);
 
     if (orderChanged) {
-      // Step 1: assign temporary non-colliding positions to avoid partial unique constraint collisions
+      // Exclude occupied and final slots. N free slots exist below 3N even
+      // when legacy positions are sparse or at the PostgreSQL integer limit.
+      const occupied = new Set(activeRows.map(row => row.sortOrder));
+      const temporary: number[] = [];
+      for (let candidate = payload.images.length; temporary.length < payload.images.length; candidate++) {
+        if (candidate > 2147483647) throw ApiError.conflict("No temporary gallery positions available");
+        if (!occupied.has(candidate)) temporary.push(candidate);
+      }
       for (let i = 0; i < payload.images.length; i++) {
         await tx
           .update(productMedia)
-          .set({ sortOrder: 10000 + i })
+          .set({ sortOrder: temporary[i] })
           .where(eq(productMedia.id, payload.images[i].id));
       }
       // Step 2: assign final sortOrder and updated altText

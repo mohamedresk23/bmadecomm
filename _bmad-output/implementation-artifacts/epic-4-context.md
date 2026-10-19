@@ -1,16 +1,13 @@
-# Epic 4 Context: Sellable catalog management
+﻿# Epic 4 Context: Private product image management
 
 <!-- Compiled from planning artifacts. Edit freely. Regenerate with compile-epic-context if planning docs change. -->
 
 ## Goal
 
-Enable authorized staff to manage categories, product and variant drafts, validated images, publication, stable URLs and lifecycle operations without exposing unpublished data or damaging historical references. Retain the original Epic 04 numbering used by the completed E04-02 handoff: the approved E04-03 image breakdown extends that baseline and does not substitute the proposed decomposed numbering. The owner now explicitly authorized E04-03-01 implementation; the separate logo-CSRF prerequisite must remain intact, and stories 02–07 remain unauthorized.
+Enable authorized catalog staff to manage validated, private Draft product images: an ordered gallery with alt text, optional variant assignments and safe detachment that retains historical media. This is the approved E04-03 grouping within the original Epic 04 Sellable catalog management; retain the original IDs and existing E04-02 contracts. The user has authorized E04-03-05 implementation. Publication, storefront rendering and later lifecycle stories remain outside this image slice. No product brief was found in the planning directory; the scoped epics, PRD, architecture and UX documents supply this context.
 
 ## Stories
 
-- Story E04-01: Category tree management
-- Story E04-02: Product and variant drafts (existing handoff recorded done)
-- Story E04-03: Product images
 - Story E04-03-01: Secure and validate existing media upload
 - Story E04-03-02: Read and privately preview a product gallery
 - Story E04-03-03: Upload a Draft image with safe retry
@@ -18,43 +15,41 @@ Enable authorized staff to manage categories, product and variant drafts, valida
 - Story E04-03-05: Reorder the gallery accessibly
 - Story E04-03-06: Map images to variants without losing assignments
 - Story E04-03-07: Remove gallery images while retaining history
-- Story E04-04: Publish, slug and SEO metadata
-- Story E04-05: Duplicate, archive and delete
 
 ## Requirements & Constraints
 
-- New products default to Draft and remain excluded from public discovery. Approved image writes target existing Draft products; preview never promotes their bytes to public storage.
-- SKU uniqueness applies across variants; duplicate attribute combinations within a product and duplicate slugs are rejected. Categories remain acyclic and cannot be deleted while referenced by children or products.
-- Prices use persisted store currency and exact monetary representation. Inventory owns stock balances and movements; catalog editing cannot overwrite them. Cost permissions remain separate from ordinary catalog editing.
-- Active attachments form an ordered gallery whose first image is primary. Optional variant assignments reference active same-product images; unmapped variants fall back to primary or null. Publication requires valid alt text; Draft saves may retain missing descriptions and expose readiness issues. Do not invent a requirement to have an image.
-- Validate actual format and successful decoding, re-encode and strip metadata. Empty, malformed, spoofed, unsupported or excessive files fail safely without public exposure or partial success. Preserve JPEG/PNG/WebP and the existing 5 MiB file bound. Approved multipart request overhead is 64 KiB above that bound; it does not enlarge the accepted image.
-- Detachment clears current mappings and compacts order while preserving media bytes, metadata and historical references. No physical deletion or order snapshot mutation belongs to the image stories.
-- Mutations require live server-resolved staff identity, action permissions and Origin/CSRF validation. Client identity/role headers never authorize access. Authorize before processing files or disclosing resources. Private responses and failures remain private/no-store, with safe correlation-aware errors and logs.
-- Publication, SEO, slug redirects and lifecycle operations remain later original stories. Duplication creates a fresh Draft and clears SKUs; archival preserves references; deletion is forbidden for historically referenced products/variants. Storefront rendering and order integration are outside the image breakdown.
+- Image writes target persisted Draft products. Draft images remain private; upload and preview must never publish media or generate public access paths.
+- Active attachments form a contiguous ordered gallery. The first active image is primary; an empty gallery has a null primary. Optional variant assignments reference active images belonging to the same product, allow shared images and fall back to primary or null when unassigned.
+- Draft saves may contain blank alt text and return publication-readiness issues. Valid alt text is required for image publication readiness; do not invent an image-required rule.
+- Validate actual image bytes, decoded content, size and supported format; re-encode and strip metadata before attachment. Preserve JPEG/PNG/WebP and the existing 5 MiB bound. Reject empty, malformed, spoofed or excessive input safely without partial success.
+- Soft detachment clears current assignments and compacts order while preserving media bytes, metadata and historical references. Physical deletion and changes to order snapshots are outside this grouping.
+- Resolve a live staff session and required catalog permission on every request. Client-supplied actor, role or mock identity headers never authorize access. Writes enforce Origin/CSRF; authorize before file processing or resource disclosure. Responses and errors remain private/no-store with safe correlation-aware errors and logs.
+- Strict schemas enforce full membership, same-product IDs and valid ordering. Revision guards reject stale submissions. Upload retry keys are actor/product scoped and deduplicate equivalent requests while rechecking authorization.
+- Every committed mutation includes its revision and redacted audit atomically. Validation, storage, database or audit failures leave no partial committed aggregate; no-op and replay produce no additional success audit.
+- Numeric count, request, text, rate and decode policies must follow the authoritative feature contract and recorded owner decisions. The scoped planning documents retain unresolved policy gates; they do not independently approve proposed limits. Production provider, region and retention remain release decisions; local feature work does not establish production readiness.
 
 ## Technical Decisions
 
-- Catalog owns gallery commands; HTTP adapters call application services; image processing/storage use adapters. Application services do not depend on Next.js APIs.
-- Preserve original E04-02 draft, variant, monetary, category-link and authorization contracts. Its done handoff is recorded evidence, not a claim of newly rerun tests during this planning session.
-- Legacy media upload/publish routes remain owner only by the user's planning decision; product-image routes use existing catalog permissions. Replace or isolate legacy x-mock-user trust through live staff-session resolution and server authorization. Do not broaden legacy access while integrating catalog images.
-- PostgreSQL constraints and short transactions protect membership, ordering, same-product assignments, revision and audit integrity. Stage files outside transactions; compensate or record new orphans safely without deleting unrelated/retained media. Mutations commit redacted audits; failure, no-op and replay add no extra success event. Lock product first, then media in stable order.
-- Additive attachment/revision structures belong to 02; variant-mapping structures to 06. Strict DTOs use opaque IDs, revision strings and UTC timestamps. Revision guards reject stale writes. Actor/product-scoped upload keys deduplicate identical retries while rechecking live authorization.
-- Later mapping must preserve retained variant assignments during product edits and clear only truly removed IDs atomically. Preserve existing product-edit behavior until that explicitly scoped compatibility slice.
-- Current scope is local development. Production provider/region and retention remain unresolved release gates; no production readiness is implied. The owner approved <=4096 pixels per dimension AND <=8,000,000 total pixels, static-only uploads, and a ten-second processing deadline with actual termination/cleanup and no partial result. Processing implementation is authorized for E04-03-01 only. Later count/rate/text/JSON policies remain unapproved.
+- Catalog owns gallery commands. HTTP adapters call application services; file processing and storage use adapters. Application services must not depend on Next.js APIs. Read the installed Next.js guides before changing framework integration.
+- Use additive PostgreSQL changes and preserve existing product, variant and media records. Attachment/revision structures precede variant mapping structures. Same-product foreign keys, active-position uniqueness and transactions protect the aggregate.
+- Lock product first, then media in stable ID order. Stage file processing outside short database transactions; attach, update revision and audit together. Safely compensate or record newly staged orphans without deleting unrelated or retained objects.
+- Gallery DTOs use opaque IDs, bigint revision strings and UTC timestamps. Product-scoped commands provide gallery upload/read/update/detach and authenticated image content; the implementation contract governs exact schemas and errors.
+- Preserve original product-edit behavior, category links, monetary representation, authorization and variant identities. Existing variant replacement must preserve retained-ID image assignments and clear genuinely removed assignments atomically when mapping is implemented.
+- Production image storage must survive web-process replacement; metadata belongs in PostgreSQL and bytes belong behind a storage adapter. Do not select a provider or region without an owner decision.
+- Each slice includes relevant unit, API and component verification, lint/typecheck and integration build checks. Database ordering and concurrency changes require real PostgreSQL evidence, including rollback and consistent reads; automated accessibility checks need manual keyboard/mobile verification.
 
 ## UX & Interaction Patterns
 
-- Follow existing Arabic RTL admin conventions with accessible labels, visible focus and field-linked errors. Each slice includes loading, empty, failure and recovery states rather than deferring accessibility/resilience.
-- Persist products before attaching images. Upload shows accepted types/adopted limits, progress/busy state and explicit retry. Never automatically publish an upload to obtain a preview.
-- Loading reserves thumbnail space; empty galleries explain the next action. Unavailable bytes show a retryable placeholder without silently deleting an attachment.
-- Reorder supports keyboard/touch move controls and announces primary changes; dragging is optional. Alt text is plain text; variant selectors use stable persisted IDs and readable SKU/attribute labels.
-- Upload/removal persist immediately; order/alt/mapping use Save gallery. Resolve dirty conflicts with explicit save/discard choices. Stale/session/network failures retain input and require review or reauthentication. Removal confirmation explains detachment/fallback and preserves sensible focus.
+- Follow existing Arabic RTL admin conventions and visual tokens. Labels remain visible, errors associate with fields, focus is visible and status does not depend on color. Reflow preserves reading and operation order at 320, 768, 1024 and 1440px; no essential action depends on hover.
+- Unsaved products must be saved before attachment. Upload presents supported types/adopted limits, progress or busy state, duplicate-submit protection and safe same-key retry.
+- Reserve thumbnail space while loading. Distinguish empty galleries from failed loads. Broken previews offer a placeholder/retry without removing the attachment.
+- Reorder supports explicit earlier/later actions usable by keyboard and touch, maintains logical order in RTL, and announces order/primary changes. Dragging is optional. Preserve image descriptions during local movement.
+- Upload and detachment persist immediately; ordering, alt text and mappings use Save gallery. Dirty navigation, replacement and conflicting actions require explicit save/discard handling; cancellation preserves gallery and unrelated product edits.
+- Stale, network and expired-session errors retain entered values and offer explicit reload/review or reauthentication. Never silently overwrite or reapply stale edits. Confirmation explains detachment and fallback; cancellation and completion maintain sensible focus.
 
 ## Cross-Story Dependencies
 
-- E04-03-01 local implementation reached review after three independent review layers, 468 passing full-suite tests, typecheck/lint/build and isolated packaged-worker verification on 2026-10-14. Human acceptance remains pending; one PostgreSQL-only skip, one existing todo, official sprint-validator unavailability and two pre-existing publication reliability deferrals are recorded in `verification-e04-03-01.md`. No later story authorization or production readiness is inferred.
-
-- Epic 02 staff permissions/session and audit foundations, Epic 03 store settings and media/error/idempotency foundations underpin catalog work. Evaluate prerequisites through tests and handoff evidence, not code presence alone.
-- E04-03-01 depends on F00-07 media storage, live staff sessions and F00-03 errors/validation. This foundation security correction precedes gallery integration. Conflicting F00-07 records require reconciliation and explicit verification gaps; no completion is inferred here.
-- Image delivery order is 01 → 02 → 03 → 04 → 05 → 06 → 07. Story 02 also depends on original E04-02; 03 uses F00-06 idempotency; 06 reconciles original variant editing with retained image mappings. No slice depends on a future slice.
-- E04-04 depends on image validation/readiness; E04-05 follows publication/lifecycle contracts. Inventory, public discovery and historical order rendering retain their own integration responsibilities.
+- Existing original E04-02 product/variant drafts and media, staff-session, permission, validation, audit and idempotency foundations underpin this work. Use prerequisite handoff and test evidence rather than assuming completion from code presence.
+- Delivery order is E04-03-01 through E04-03-07. Gallery reads precede attachment; attachment precedes editing; editing precedes accessible ordering; mapping follows ordering; safe removal completes the cumulative workflow.
+- Variant mapping must reconcile existing product edits before assignments can be considered durable. The final slice validates the combined upload/edit/order/map/reload/remove journey and privacy boundaries.
+- Publication, inventory, storefront discovery and historical order rendering retain their own integration responsibilities. Retained-reference fixtures do not establish future order-table integration.

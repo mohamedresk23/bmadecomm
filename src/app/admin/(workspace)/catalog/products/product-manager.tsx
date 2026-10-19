@@ -215,7 +215,8 @@ export function ProductManager() {
       });
       pendingCreate.current = null;
       fill(response.product);
-      void loadGallery(response.product.id);
+      // Product edits do not mutate this gallery; keep its local draft intact.
+      if (!id) void loadGallery(response.product.id);
       setCollection(current => current ? { ...current, products: [...current.products.filter(product => product.id !== response.product.id), response.product] } : current);
       setSuccess("تم حفظ المسودة بنجاح."); setExpired(false);
     } catch (err) { reportError(err); }

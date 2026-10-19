@@ -9,7 +9,7 @@
 # Never regenerate globally from this scoped input if other epics are later added:
 # include their authoritative inputs too and reconcile dry-run orphan reports first.
 generated: '10-14-2026 14:41'
-last_updated: '10-19-2026 10:40'
+last_updated: '10-19-2026'
 project: bmadecomm
 project_key: NOKEY
 tracking_system: file-system
@@ -33,7 +33,7 @@ development_status:
   4-302-read-and-privately-preview-a-product-gallery: done
   4-303-upload-a-draft-image-with-safe-retry: done
   4-304-save-alt-text-and-show-publication-readiness: done
-  4-305-reorder-the-gallery-accessibly: ready-for-dev
+  4-305-reorder-the-gallery-accessibly: review
   4-306-map-images-to-variants-without-losing-assignments: backlog
   4-307-remove-gallery-images-while-retaining-history: backlog
   epic-4-retrospective: optional

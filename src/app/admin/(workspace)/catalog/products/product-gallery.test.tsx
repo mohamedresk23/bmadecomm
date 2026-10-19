@@ -46,7 +46,7 @@ describe("ProductGallery UI component", () => {
 
   it("renders loading skeletons when loading", () => {
     render(<ProductGallery productId="prd_123" gallery={null} loading={true} error={null} onRetry={() => {}} />);
-    expect(screen.getByRole("status")).toBeTruthy();
+    expect(screen.getAllByLabelText("جارٍ تحميل الصور…")).toHaveLength(3);
   });
 
   it("renders error alert with retry button on failure", () => {
@@ -397,49 +397,6 @@ describe("ProductGallery alt text editing and publication readiness", () => {
     expect(screen.getByTestId("gallery-readiness-warning-pim_1")).toBeTruthy();
   });
 
-  it("retains entered alt text and shows reload prompt on 409 STALE_GALLERY conflict", async () => {
-    const onRetry = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          error: { code: "STALE_GALLERY", message: "Gallery has been modified by another operation" },
-        }),
-        { status: 409, headers: { "Content-Type": "application/json" } }
-      )
-    );
-
-    render(
-      <ProductGallery
-        productId="prd_123"
-        gallery={mockGallery}
-        loading={false}
-        error={null}
-        onRetry={onRetry}
-      />
-    );
-
-    const input1 = screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement;
-    fireEvent.change(input1, { target: { value: "Unsaved local draft description" } });
-
-    fireEvent.click(screen.getByTestId("gallery-save-button"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("gallery-save-error")).toBeTruthy();
-    });
-
-    // Error banner shown with reload prompt
-    expect(screen.getByText(/تم تعديل المعرض من قبل مستخدم أو عملية أخرى/)).toBeTruthy();
-    const reloadBtn = screen.getByTestId("gallery-reload-button");
-    expect(reloadBtn).toBeTruthy();
-
-    fireEvent.click(reloadBtn);
-    expect(onRetry).toHaveBeenCalledOnce();
-
-    // Entered value is PRESERVED! Not wiped!
-    expect(input1.value).toBe("Unsaved local draft description");
-    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(false);
-  });
-
   it("displays inline field error on 422 validation failure while retaining entered text", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
       new Response(
@@ -581,64 +538,6 @@ describe("ProductGallery alt text editing and publication readiness", () => {
     });
   });
 
-  it("resets saveError and isStale when reload is clicked or when gallery revision changes", async () => {
-    const onRetry = vi.fn();
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { code: "STALE_GALLERY", message: "Stale revision" } }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
-    const { rerender } = render(
-      <ProductGallery
-        productId="prd_123"
-        gallery={mockGallery}
-        loading={false}
-        error={null}
-        onRetry={onRetry}
-      />
-    );
-
-    const input1 = screen.getByTestId("gallery-alt-input-pim_1");
-    fireEvent.change(input1, { target: { value: "New alt" } });
-    fireEvent.click(screen.getByTestId("gallery-save-button"));
-
-    await waitFor(() => {
-      expect(screen.getByTestId("gallery-save-error")).toBeTruthy();
-    });
-
-    // 1. Click reload button -> clears saveError
-    const reloadBtn = screen.getByTestId("gallery-reload-button");
-    fireEvent.click(reloadBtn);
-    expect(onRetry).toHaveBeenCalledOnce();
-    expect(screen.queryByTestId("gallery-save-error")).toBeNull();
-
-    // Re-trigger error
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: { code: "STALE_GALLERY", message: "Stale revision" } }), {
-        status: 409,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-    fireEvent.click(screen.getByTestId("gallery-save-button"));
-    await waitFor(() => {
-      expect(screen.getByTestId("gallery-save-error")).toBeTruthy();
-    });
-
-    // 2. New gallery revision prop arrives -> clears saveError
-    rerender(
-      <ProductGallery
-        productId="prd_123"
-        gallery={{ ...mockGallery, revision: "2" }}
-        loading={false}
-        error={null}
-        onRetry={onRetry}
-      />
-    );
-    expect(screen.queryByTestId("gallery-save-error")).toBeNull();
-  });
-
   it("calls onDirtyChange with false on unmount", () => {
     const onDirtyChange = vi.fn();
     const { unmount } = render(
@@ -747,3 +646,79 @@ describe("ProductGallery alt text editing and publication readiness", () => {
   });
 });
 
+
+describe("accessible local gallery order", () => {
+  const props = { productId: "prd_123", gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };
+  const order = () => screen.getAllByTestId(/^gallery-image-/).map(node => node.getAttribute("data-testid"));
+  it("swaps in logical order, retains ID descriptions and boundary focus, and undo becomes clean", () => {
+    const dirty = vi.fn(); render(<ProductGallery {...props} onDirtyChange={dirty} />);
+    const earlier = screen.getByTestId("gallery-move-earlier-pim_2");
+    earlier.focus(); fireEvent.click(earlier);
+    expect(order()).toEqual(["gallery-image-pim_2", "gallery-image-pim_1"]);
+    expect(document.activeElement).toBe(earlier);
+    expect(earlier.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(earlier);
+    expect(order()).toEqual(["gallery-image-pim_2", "gallery-image-pim_1"]);
+    expect((screen.getByTestId("gallery-alt-input-pim_2") as HTMLInputElement).value).toBe("Back View");
+    expect(screen.getByTestId("gallery-move-status").textContent).toContain("1");
+    expect(screen.getByTestId("gallery-move-status").getAttribute("aria-live")).toBe("polite");
+    expect(dirty).toHaveBeenLastCalledWith(true);
+    fireEvent.click(screen.getByTestId("gallery-move-later-pim_2"));
+    expect(order()).toEqual(["gallery-image-pim_1", "gallery-image-pim_2"]);
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    expect(dirty).toHaveBeenLastCalledWith(false);
+  });
+  it("sends the local permutation and descriptions and blocks edits while saving", async () => {
+    let finish!: (value: Response) => void;
+    const fetcher = vi.spyOn(globalThis, "fetch").mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    render(<ProductGallery {...props} />);
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Front edited" } });
+    fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string).images).toEqual([{ id: "pim_2", altText: "Back View" }, { id: "pim_1", altText: "Front edited" }]);
+    expect((screen.getByTestId("gallery-move-later-pim_2") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).disabled).toBe(true);
+    finish(new Response("{}", { status: 500 }));
+    await screen.findByTestId("gallery-save-error");
+    expect(order()).toEqual(["gallery-image-pim_2", "gallery-image-pim_1"]);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Front edited");
+  });
+  it("keeps stale edits reviewable and requires confirmed discard before reload", async () => {
+    const retry = vi.fn(); const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ error: { code: "STALE_GALLERY" } }), { status: 409 }));
+    const view = render(<ProductGallery {...props} onRetry={retry} />);
+    fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Retain me" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await screen.findByTestId("gallery-reload-button");
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("gallery-reload-button")); expect(retry).not.toHaveBeenCalled();
+    expect(order()[0]).toBe("gallery-image-pim_2");
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Retain me");
+    confirm.mockReturnValue(true); fireEvent.click(screen.getByTestId("gallery-reload-button")); expect(retry).toHaveBeenCalledOnce();
+    view.rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "2" }} onRetry={retry} />);
+    expect(order()[0]).toBe("gallery-image-pim_1");
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("");
+  });
+  it("makes singleton boundary actions unavailable without dirtying the gallery", () => {
+    render(<ProductGallery {...props} gallery={{ ...mockGallery, images: [mockGallery.images[0]] }} />);
+    for (const direction of ["earlier", "later"]) {
+      const button = screen.getByTestId(`gallery-move-${direction}-pim_1`);
+      expect(button.getAttribute("aria-disabled")).toBe("true"); fireEvent.click(button);
+    }
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+  });
+});
+
+it("announces moved identity and a fresh sequence even for repeated destinations", () => {
+  render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+  fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+  const first = screen.getByTestId("gallery-move-status").textContent!;
+  fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_1"));
+  const second = screen.getByTestId("gallery-move-status").textContent!;
+  fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+  const third = screen.getByTestId("gallery-move-status").textContent!;
+  expect(first).toContain("pim_2"); expect(second).toContain("pim_1");
+  expect(first).toMatch(/1:/); expect(second).toMatch(/2:/); expect(third).toMatch(/3:/);
+  expect(new Set([first,second,third]).size).toBe(3);
+});
