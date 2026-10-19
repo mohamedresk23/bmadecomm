@@ -30,7 +30,7 @@ development_status:
   4-301-secure-and-validate-existing-media-upload: done
   4-302-read-and-privately-preview-a-product-gallery: done
   4-303-upload-a-draft-image-with-safe-retry: done
-  4-304-save-alt-text-and-show-publication-readiness: ready-for-dev
+  4-304-save-alt-text-and-show-publication-readiness: review
   4-305-reorder-the-gallery-accessibly: backlog
   4-306-map-images-to-variants-without-losing-assignments: backlog
   4-307-remove-gallery-images-while-retaining-history: backlog

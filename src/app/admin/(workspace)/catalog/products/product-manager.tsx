@@ -67,6 +67,7 @@ export function ProductManager() {
   const [gallery, setGallery] = useState<GalleryDto | null>(null);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [isGalleryDirty, setIsGalleryDirty] = useState(false);
   const cleanForm = useRef(formSignature("", "", [], [emptyVariant()], ""));
   const pendingCreate = useRef<{ payload: string; key: string } | null>(null);
   const [error, setError] = useState("");
@@ -143,10 +144,12 @@ export function ProductManager() {
   }, []);
 
   function canReplace() {
-    return cleanForm.current === formSignature(name, description, categoryIds, rows, dimensionText) || window.confirm("لديك تغييرات غير محفوظة. هل تريد استبدالها؟");
+    const isFormClean = cleanForm.current === formSignature(name, description, categoryIds, rows, dimensionText);
+    return (isFormClean && !isGalleryDirty) || window.confirm("لديك تغييرات غير محفوظة. هل تريد استبدالها؟");
   }
   async function edit(productId: string) {
     if (busy.current || !canReplace()) return;
+    setIsGalleryDirty(false);
     busy.current = true; setLoading(true); setError(""); setFields({}); setSuccess("");
     try {
       const response = await ApiClient.fetch<{ product: ProductDto; csrf: string }>(`${endpoint}/${encodeURIComponent(productId)}`, { cache: "no-store" });
@@ -158,6 +161,7 @@ export function ProductManager() {
   }
   function reset() {
     if (!canReplace()) return;
+    setIsGalleryDirty(false);
     setId(undefined); setName(""); setDescription(""); setCategoryIds([]); setRows([emptyVariant()]); setDimensionText(""); setError(""); setFields({}); setSuccess("");
     setAppliedDimensions(""); setPricing(collection?.metadata ?? null); setPricesNeedReview(false);
     galleryRequest.current++;
@@ -274,6 +278,8 @@ export function ProductManager() {
         onRetry={() => { if (id) void loadGallery(id); }}
         csrf={collection?.csrf}
         onUploadSuccess={(updated) => setGallery(updated)}
+        onGalleryUpdate={(updated) => setGallery(updated)}
+        onDirtyChange={setIsGalleryDirty}
       />
     </>}
   </section>;

@@ -14,11 +14,13 @@ import { throttleStaffUpload } from "../infrastructure/upload-rate-limit";
 import {
   GalleryDto,
   GalleryImageDto,
+  UpdateGalleryDto,
   UploadImageResponse,
   MAX_ACTIVE_IMAGES,
   MAX_FILE_SIZE,
   IDEMPOTENCY_WINDOW_MS,
 } from "../contracts/gallery";
+
 
 export async function getGalleryByProductId(db: DbContext, productId: string): Promise<GalleryDto> {
   const [product] = await db.select({
@@ -431,3 +433,176 @@ export async function uploadGalleryImage(
     throw err;
   }
 }
+
+export type UpdateGalleryInput = {
+  productId: string;
+  staffUserId: string;
+  requestId: string;
+  payload: UpdateGalleryDto;
+};
+
+export async function updateGallery(
+  db: DbContext,
+  input: UpdateGalleryInput
+): Promise<GalleryDto> {
+  const { productId, staffUserId, requestId, payload } = input;
+
+  if (!productId.trim() || /[\x00-\x1f\x7f]/.test(productId)) {
+    throw ApiError.badRequest("Valid product id required");
+  }
+
+  return await withTransaction(db, async (tx) => {
+    // 1. Lock product row FOR UPDATE
+    const [product] = await tx
+      .select({
+        id: products.id,
+        status: products.status,
+        mediaRevision: products.mediaRevision,
+      })
+      .from(products)
+      .where(eq(products.id, productId))
+      .for("update");
+
+    if (!product) {
+      throw ApiError.notFound("Product not found");
+    }
+
+    if (product.status !== "draft") {
+      throw ApiError.conflict("Only drafts can be edited");
+    }
+
+    if (product.mediaRevision.toString() !== payload.expectedRevision) {
+      throw new ApiError(409, "STALE_GALLERY", "Gallery has been modified by another operation. Please reload.");
+    }
+
+    // 2. Lock active product_media rows in stable id ASC order FOR UPDATE
+    const lockedMediaRows = await tx
+      .select({
+        id: productMedia.id,
+        sortOrder: productMedia.sortOrder,
+        altText: productMedia.altText,
+        createdAt: productMedia.createdAt,
+      })
+      .from(productMedia)
+      .where(and(eq(productMedia.productId, productId), isNull(productMedia.removedAt)))
+      .orderBy(asc(productMedia.id))
+      .for("update");
+
+    // Order active rows by sortOrder, createdAt to match presentation order
+    const activeRows = [...lockedMediaRows].sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.createdAt.getTime() - b.createdAt.getTime();
+    });
+
+    // 3. Strict full membership validation
+    const submittedIds = payload.images.map((img) => img.id);
+    const uniqueSubmittedIds = new Set(submittedIds);
+    if (uniqueSubmittedIds.size !== submittedIds.length) {
+      throw ApiError.unprocessableEntity("Duplicate image IDs in gallery update");
+    }
+
+    if (payload.images.length !== activeRows.length) {
+      throw ApiError.unprocessableEntity("Gallery images list must contain every active image exactly once");
+    }
+
+    const activeIdSet = new Set(activeRows.map((row) => row.id));
+    for (const id of submittedIds) {
+      if (!activeIdSet.has(id)) {
+        throw ApiError.unprocessableEntity("Unknown or foreign image ID in gallery update");
+      }
+    }
+
+    // 4. No-Op detection:
+    // If order and trimmed alt text are identical to active rows
+    let isNoOp = true;
+    for (let i = 0; i < activeRows.length; i++) {
+      const submitted = payload.images[i];
+      const active = activeRows[i];
+      if (submitted.id !== active.id || submitted.altText.trim() !== active.altText) {
+        isNoOp = false;
+        break;
+      }
+    }
+
+    if (isNoOp) {
+      return await getGalleryByProductId(tx, productId);
+    }
+
+    // 5. Apply changes
+    const orderChanged = payload.images.some((img, idx) => img.id !== activeRows[idx].id);
+
+    if (orderChanged) {
+      // Step 1: assign temporary non-colliding positions to avoid partial unique constraint collisions
+      for (let i = 0; i < payload.images.length; i++) {
+        await tx
+          .update(productMedia)
+          .set({ sortOrder: 10000 + i })
+          .where(eq(productMedia.id, payload.images[i].id));
+      }
+      // Step 2: assign final sortOrder and updated altText
+      for (let i = 0; i < payload.images.length; i++) {
+        const item = payload.images[i];
+        await tx
+          .update(productMedia)
+          .set({
+            sortOrder: i,
+            altText: item.altText.trim(),
+            updatedAt: sql`clock_timestamp()`,
+          })
+          .where(eq(productMedia.id, item.id));
+      }
+    } else {
+      // Order is unchanged; update altText where changed
+      for (let i = 0; i < payload.images.length; i++) {
+        const item = payload.images[i];
+        const trimmed = item.altText.trim();
+        if (trimmed !== activeRows[i].altText) {
+          await tx
+            .update(productMedia)
+            .set({
+              altText: trimmed,
+              updatedAt: sql`clock_timestamp()`,
+            })
+            .where(eq(productMedia.id, item.id));
+        }
+      }
+    }
+
+    // 6. Increment media_revision
+    const newRevision = product.mediaRevision + BigInt(1);
+    await tx
+      .update(products)
+      .set({
+        mediaRevision: newRevision,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(eq(products.id, productId));
+
+    // 7. Write audit entry
+    await writeAudit(tx, {
+      actor: `staff:${staffUserId}`,
+      action: "catalog.product.gallery.update",
+      resource: `product:${productId}`,
+      diff: {
+        mediaRevision: newRevision.toString(),
+        previousRevision: product.mediaRevision.toString(),
+        nextRevision: newRevision.toString(),
+        before: activeRows.map((row) => ({
+          id: row.id,
+          position: row.sortOrder,
+          altText: row.altText,
+        })),
+        after: payload.images.map((img, idx) => ({
+          id: img.id,
+          position: idx,
+          altText: img.altText.trim(),
+        })),
+      },
+      requestId,
+    });
+
+    // 8. Return updated gallery
+    return await getGalleryByProductId(tx, productId);
+  });
+}
+

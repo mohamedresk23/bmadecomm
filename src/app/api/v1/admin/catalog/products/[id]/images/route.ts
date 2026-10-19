@@ -4,12 +4,19 @@ import { db } from "../../../../../../../../db";
 import { requireCatalogStaffSession } from "../../../../../../../../modules/content/settings/infrastructure/admin-auth";
 import {
   getGalleryByProductId,
+  updateGallery,
   uploadGalleryImage,
 } from "../../../../../../../../modules/catalog/products/application/gallery-service";
 import { readMediaFile } from "../../../../../../../../lib/media/request";
 import { ApiError } from "../../../../../../../../shared/api/errors";
+import { boundedJson } from "../../../../../../../../shared/api/bounded-json";
 
-import { MAX_REQUEST_BODY } from "../../../../../../../../modules/catalog/products/contracts/gallery";
+import {
+  MAX_PUT_BODY,
+  MAX_REQUEST_BODY,
+  updateGallerySchema,
+} from "../../../../../../../../modules/catalog/products/contracts/gallery";
+
 
 type Context = { params: Promise<{ id: string }> };
 
@@ -88,3 +95,42 @@ export const POST = privateHandler(async (req, route, requestId) => {
 
   return NextResponse.json(result, { status: 201 });
 });
+
+export const PUT = privateHandler(async (req, route, requestId) => {
+  const { context } = await requireCatalogStaffSession(req, true);
+  const { id: productId } = await route.params;
+
+  if (!productId.trim() || /[\x00-\x1f\x7f]/.test(productId)) {
+    throw ApiError.badRequest("Valid product id required");
+  }
+
+  const rawJson = await boundedJson(req, MAX_PUT_BODY);
+  const parsed = updateGallerySchema.safeParse(rawJson);
+  if (!parsed.success) {
+    const rawImages = (rawJson as { images?: Array<{ id?: unknown }> })?.images;
+    const details = parsed.error.issues.map((issue) => {
+      let field = issue.path.join(".");
+      const match = /^images\.(\d+)\.(.+)$/.exec(field);
+      if (match) {
+        const idx = Number(match[1]);
+        const subField = match[2];
+        const imgId = rawImages?.[idx]?.id;
+        if (imgId && typeof imgId === "string") {
+          field = `images.${imgId}.${subField}`;
+        }
+      }
+      return { field, message: issue.message };
+    });
+    throw ApiError.unprocessableEntity("Validation failed", details);
+  }
+
+  const gallery = await updateGallery(db, {
+    productId,
+    staffUserId: context.userId,
+    requestId,
+    payload: parsed.data,
+  });
+
+  return NextResponse.json({ success: true, gallery }, { status: 200 });
+});
+

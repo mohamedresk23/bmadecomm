@@ -6,7 +6,7 @@ import { ProductManager } from "./product-manager";
 import { setupTestDb } from "../../../../../test-utils/db";
 import { catalogFixture } from "../../../../../test-utils/catalog";
 import { db } from "../../../../../db";
-import { auditEvents, sessions, storeSettings } from "../../../../../db/schema";
+import { auditEvents, media, productMedia, sessions, storeSettings } from "../../../../../db/schema";
 import { GET, POST } from "../../../../api/v1/admin/catalog/products/route";
 import { GET as detail, PUT } from "../../../../api/v1/admin/catalog/products/[id]/route";
 import { GET as galleryGet } from "../../../../api/v1/admin/catalog/products/[id]/images/route";
@@ -166,6 +166,35 @@ describe("ProductManager with real API handlers and migrated database", () => {
     fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
     expect((screen.getByLabelText("اسم المنتج") as HTMLInputElement).value).toBe("Unsaved name");
     expect((screen.getByLabelText("SKU 1") as HTMLInputElement).value).toBe("CANCEL");
+  });
+  it("prompts confirmation and preserves state when dirty gallery edits alone are cancelled on New Product or Edit", async () => {
+    await connect(); render(<ProductManager />); await ready(); enterSimple("GALLERY-DIRTY");
+    fireEvent.click(screen.getByRole("button", { name: "حفظ المسودة" })); await screen.findByText("تم حفظ المسودة بنجاح.");
+    const productId = fixture.productIds[0];
+    const mediaId = "med_dirty_1";
+    const pimId = "pim_dirty_1";
+    await db.insert(media).values({ id: mediaId, filename: "dirty.png", mimeType: "image/png", size: 1024, status: "pending" });
+    await db.insert(productMedia).values({ id: pimId, productId, mediaId, sortOrder: 0, altText: "Saved Alt" });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
+      await screen.findByTestId(`gallery-alt-input-${pimId}`);
+      const altInput = screen.getByTestId(`gallery-alt-input-${pimId}`) as HTMLInputElement;
+      expect(altInput.value).toBe("Saved Alt");
+      fireEvent.change(altInput, { target: { value: "Dirty Unsaved Alt Text" } });
+      expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+      const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+      fireEvent.click(screen.getByRole("button", { name: "منتج جديد" }));
+      expect(confirmSpy).toHaveBeenCalledOnce();
+      expect(altInput.value).toBe("Dirty Unsaved Alt Text");
+      expect((screen.getByLabelText("اسم المنتج") as HTMLInputElement).value).toBe("قميص");
+      fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
+      expect(confirmSpy).toHaveBeenCalledTimes(2);
+      expect(altInput.value).toBe("Dirty Unsaved Alt Text");
+      expect((screen.getByLabelText("اسم المنتج") as HTMLInputElement).value).toBe("قميص");
+    } finally {
+      await db.delete(productMedia).where(eq(productMedia.id, pimId));
+      await db.delete(media).where(eq(media.id, mediaId));
+    }
   });
   it("preserves prices on metadata refresh and requires explicit currency review", async () => {
     await connect(); render(<ProductManager />); await ready(); enterSimple("CURRENCY-UI");
