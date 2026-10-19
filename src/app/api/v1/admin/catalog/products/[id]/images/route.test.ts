@@ -953,6 +953,25 @@ describe("PUT /api/v1/admin/catalog/products/[id]/images - Update gallery", () =
     ]);
   });
 
+  it("persists a gallery permutation and primary through GET and treats an identical resubmission as a no-op", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const ids = await seedAttachments(productId, 3);
+    const ordered = [ids[2], ids[0], ids[1]];
+    const images = ordered.map(id => ({ id, altText: `Description for ${id}` }));
+    const result = await putGallery(makePutGalleryRequest(productId, { expectedRevision: "0", images, variantImages: [] }, token, csrf), { params: Promise.resolve({ id: productId }) });
+    expect(result.status).toBe(200);
+    const response = await getGallery(new Request(`http://localhost:3000/api/v1/admin/catalog/products/${productId}/images`, { headers: { Cookie: `__Host-staff-session=${token}` } }), { params: Promise.resolve({ id: productId }) });
+    const { gallery } = await response.json();
+    expect(gallery.primaryImageId).toBe(ordered[0]);
+    expect(gallery.images.map((image: { id: string; position: number }) => [image.id, image.position])).toEqual(ordered.map((id, index) => [id,index]));
+    expect(gallery.images.map((image: { altText: string }) => image.altText)).toEqual(images.map(image => image.altText));
+    const noop = await putGallery(makePutGalleryRequest(productId, { expectedRevision: "1", images, variantImages: [] }, token, csrf), { params: Promise.resolve({ id: productId }) });
+    expect((await noop.json()).gallery.revision).toBe("1");
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    expect(audits.filter(a => a.action === "catalog.product.gallery.update")).toHaveLength(1);
+  });
+
   it("detects no-op when alt text and order are identical: returns 200, unchanged revision, zero audit entries", async () => {
     const { token, csrf } = await staff();
     const productId = await createProductFixture();

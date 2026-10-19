@@ -41,6 +41,21 @@ function ProductGalleryState({
   useLayoutEffect(() => () => { uploadController.current?.abort(); }, []);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
+  const [moveAnnouncement, setMoveAnnouncement] = useState("");
+  const announcementSequence = useRef(0);
+  const moveButtons = useRef<Record<string, HTMLButtonElement | null>>({});
+  const pendingFocus = useRef<string | null>(null);
+  const orderedImages = localOrder
+    ? localOrder.flatMap(id => gallery?.images.find(image => image.id === id) ?? [])
+    : gallery?.images ?? [];
+  useLayoutEffect(() => {
+    if (pendingFocus.current) {
+      moveButtons.current[pendingFocus.current]?.focus();
+      pendingFocus.current = null;
+    }
+  });
+
   // Alt text editing and dirty tracking
   const [localAltTexts, setLocalAltTexts] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -49,10 +64,11 @@ function ProductGalleryState({
   const [isStale, setIsStale] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  const isDirty = (gallery?.images.some((img) => {
+  const orderDirty = orderedImages.some((image, index) => image.id !== gallery?.images[index]?.id);
+  const isDirty = orderDirty || ((gallery?.images.some((img) => {
     const local = localAltTexts[img.id];
     return local !== undefined && local.trim() !== img.altText.trim();
-  })) ?? false;
+  })) ?? false);
 
   useEffect(() => {
     onDirtyChange?.(isDirty);
@@ -66,6 +82,9 @@ function ProductGalleryState({
     setPrevRevision(gallery?.revision);
     setSaveError(null);
     setIsStale(false);
+    setLocalOrder(null);
+    setLocalAltTexts({});
+    setFieldErrors({});
   }
 
   useEffect(() => {
@@ -155,6 +174,8 @@ function ProductGalleryState({
 
       const data = await res.json();
       if (controller.signal.aborted) return;
+      setLocalOrder(null);
+      setLocalAltTexts({});
       setSelectedFile(null);
       setIdempotencyKey(null);
       if (fileInputRef.current) {
@@ -183,7 +204,7 @@ function ProductGalleryState({
     e.preventDefault();
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("لديك تعديلات غير محفوظة في المعرض. سيؤدي رفع صورة جديدة إلى المتابعة وتحديث المعرض. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
@@ -192,21 +213,21 @@ function ProductGalleryState({
   const handleRetryUpload = async () => {
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("لديك تعديلات غير محفوظة في المعرض. سيؤدي رفع صورة جديدة إلى المتابعة وتحديث المعرض. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
   };
 
   const handleSaveGallery = async () => {
-    if (!productId || !gallery || !isDirty || saving) return;
+    if (!productId || !gallery || !isDirty || saving || uploading || loading || error || isStale || gallery.productId !== productId) return;
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
     setIsStale(false);
     setFieldErrors({});
 
-    const imagesPayload = gallery.images.map((img) => ({
+    const imagesPayload = orderedImages.map((img) => ({
       id: img.id,
       altText: localAltTexts[img.id] !== undefined ? localAltTexts[img.id] : img.altText,
     }));
@@ -259,6 +280,7 @@ function ProductGalleryState({
 
       const data = await res.json();
       setLocalAltTexts({});
+      setLocalOrder(null);
       setFieldErrors({});
       setSaveError(null);
       setIsStale(false);
@@ -322,7 +344,7 @@ function ProductGalleryState({
           <button
             type="button"
             onClick={handleSaveGallery}
-            disabled={!isDirty || saving || uploading || loading || !!error || gallery?.productId !== productId}
+            disabled={!isDirty || isStale || saving || uploading || loading || !!error || gallery?.productId !== productId}
             className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             data-testid="gallery-save-button"
           >
@@ -358,6 +380,8 @@ function ProductGalleryState({
         </div>
       </div>
 
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="gallery-move-status">{moveAnnouncement}</p>
+
       {saveSuccess && (
         <div
           role="status"
@@ -381,8 +405,11 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold text-blue-700 underline"
               onClick={() => {
+                if (!window.confirm("سيؤدي إعادة التحميل إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة. هل تريد المتابعة؟")) return;
                 setSaveError(null);
-                setIsStale(false);
+                setLocalOrder(null);
+                setLocalAltTexts({});
+                setFieldErrors({});
                 onRetry();
               }}
               data-testid="gallery-reload-button"
@@ -415,7 +442,7 @@ function ProductGalleryState({
       )}
 
       {loading && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4" role="status">
+        <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4" role="status">
           {[1, 2, 3].map((i) => (
             <div
               key={i}
@@ -449,9 +476,9 @@ function ProductGalleryState({
       )}
 
       {!loading && !error && gallery && gallery.images.length > 0 && (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4">
-          {gallery.images.map((image: GalleryImageDto) => {
-            const isPrimary = image.id === gallery.primaryImageId;
+        <div className="grid grid-cols-1 gap-4 min-[480px]:grid-cols-2 sm:grid-cols-3 md:grid-cols-4">
+          {orderedImages.map((image: GalleryImageDto, index) => {
+            const isPrimary = index === 0;
             const currentAlt = localAltTexts[image.id] !== undefined ? localAltTexts[image.id] : image.altText;
             const isBlank = currentAlt.trim() === "";
             const isFailed = failedImages[image.id];
@@ -494,6 +521,32 @@ function ProductGalleryState({
                 </div>
 
                 <div className="mt-2 space-y-1.5">
+                  <p className="text-xs text-slate-600" data-testid={`gallery-position-${image.id}`}>الصورة {index + 1} من {orderedImages.length}</p>
+                  <div className="flex flex-wrap gap-2">
+                    {([-1, 1] as const).map(direction => {
+                      const boundary = index + direction < 0 || index + direction >= orderedImages.length;
+                      const key = `${image.id}:${direction}`;
+                      return <button key={direction} type="button"
+                        ref={node => { moveButtons.current[key] = node; }}
+                        aria-label={`${direction === -1 ? "نقل إلى موضع سابق" : "نقل إلى موضع لاحق"} للصورة ${index + 1}`}
+                        aria-disabled={boundary}
+                        disabled={saving || uploading || loading || !!error || gallery.productId !== productId}
+                        data-testid={`gallery-move-${direction === -1 ? "earlier" : "later"}-${image.id}`}
+                        className="min-h-11 rounded-lg border border-slate-400 px-3 py-2 text-xs font-semibold aria-disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50"
+                        onClick={() => {
+                          if (boundary || saving || uploading || loading || error) return;
+                          const ids = orderedImages.map(item => item.id);
+                          const previousPrimary = ids[0];
+                          [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
+                          pendingFocus.current = key;
+                          setLocalOrder(ids);
+                          setSaveSuccess(null);
+                          setMoveAnnouncement(`التغيير ${++announcementSequence.current}: تم نقل الصورة ${image.id} إلى الموضع ${index + direction + 1} من ${ids.length}. ${previousPrimary !== ids[0] ? "الصورة في الموضع الأول هي الرئيسية الآن." : "لم تتغير الصورة الرئيسية."}`);
+                        }}>
+                        {direction === -1 ? "نقل إلى موضع سابق" : "نقل إلى موضع لاحق"}
+                      </button>;
+                    })}
+                  </div>
                   <p className="truncate text-xs text-slate-500" title={currentAlt || "(بدون نص بديل)"}>
                     {currentAlt ? `النص: ${currentAlt}` : "(بدون نص بديل)"}
                   </p>
@@ -509,7 +562,7 @@ function ProductGalleryState({
                     type="text"
                     value={currentAlt}
                     maxLength={500}
-                    disabled={saving || loading || !!error || gallery?.productId !== productId}
+                    disabled={saving || uploading || loading || !!error || gallery?.productId !== productId}
                     onChange={(e) => {
                       const val = e.target.value;
                       setLocalAltTexts((prev) => ({ ...prev, [image.id]: val }));
@@ -525,7 +578,7 @@ function ProductGalleryState({
                     className={`block w-full rounded-md border p-1.5 text-xs text-slate-900 shadow-xs focus:ring-1 focus:outline-none ${
                       fieldError ? "border-rose-400 focus:border-rose-500 focus:ring-rose-500" : "border-slate-300 focus:border-blue-600 focus:ring-blue-600"
                     }`}
-                    aria-label={`النص البديل للصورة ${image.position + 1}`}
+                    aria-label={`النص البديل للصورة ${index + 1}`}
                     aria-invalid={!!fieldError}
                     aria-describedby={fieldError ? `error-images-${image.id}-altText` : undefined}
                     data-testid={`gallery-alt-input-${image.id}`}

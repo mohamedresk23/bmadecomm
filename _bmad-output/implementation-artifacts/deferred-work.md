@@ -57,3 +57,7 @@
   summary: Resolved the migration-test maintenance item above.
   evidence: Corrected rollback scopes and added data/column/default preservation assertions. Full verification outside the sandbox passed 541 tests with no failures on 2026-10-18; one existing skip and one todo remain.
 
+
+- source_spec: `spec-e04-03-05-reorder-the-gallery-accessibly.md`
+  summary: Restore explicit approved media-processing and legacy-route security decisions or authoritative references in the compiled Epic 4 agent context.
+  evidence: Context refresh removed explicit 4096-dimension/8-million-pixel/static-only/ten-second termination and owner-only legacy-route wording. Current implementation contract remains loaded and controls are unchanged; build review routes agent-context changes to deferred work.
