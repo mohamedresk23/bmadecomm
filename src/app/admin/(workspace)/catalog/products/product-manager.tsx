@@ -64,6 +64,8 @@ export function ProductManager() {
   const [appliedDimensions, setAppliedDimensions] = useState("");
   const [pricing, setPricing] = useState<Pricing | null>(null);
   const [pricesNeedReview, setPricesNeedReview] = useState(false);
+  const [persistedVariants, setPersistedVariants] = useState<ProductDto["variants"]>([]);
+  const [galleryBusy, setGalleryBusy] = useState(false);
   const [gallery, setGallery] = useState<GalleryDto | null>(null);
   const [galleryLoading, setGalleryLoading] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
@@ -105,6 +107,7 @@ export function ProductManager() {
   }, [reportError]);
 
   function fill(product: ProductDto) {
+    setPersistedVariants(product.variants);
     setId(product.id); setName(product.name); setDescription(product.description ?? ""); setCategoryIds(product.categoryIds);
     const loadedRows = product.variants.map(variant => ({ id: variant.id, sku: variant.sku, price: minorToDecimal(variant.priceMinor, variant.currencyScale), comparePrice: variant.comparePriceMinor == null ? "" : minorToDecimal(variant.comparePriceMinor, variant.currencyScale), attributes: variant.attributes }));
     setRows(loadedRows);
@@ -126,7 +129,7 @@ export function ProductManager() {
   const galleryRequest = useRef(0);
   const loadGallery = useCallback(async (productId: string) => {
     const request = ++galleryRequest.current;
-    setGallery(null);
+    setGallery(current => current?.productId === productId ? current : null);
     setGalleryLoading(true);
     setGalleryError(null);
     try {
@@ -189,7 +192,7 @@ export function ProductManager() {
   }
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (busy.current || !collection || !pricing) return;
+    if (busy.current || galleryBusy || !collection || !pricing) return;
     if (dimensionText !== appliedDimensions) { setError("طبّق تغييرات الأبعاد بزر توليد المتغيرات قبل الحفظ."); return; }
     if (pricesNeedReview || pricing.pricingRevision !== collection.metadata.pricingRevision) { setError("راجع الأسعار بالعملة الجديدة قبل الحفظ."); return; }
     busy.current = true; setSaving(true); setError(""); setFields({}); setSuccess("");
@@ -215,8 +218,7 @@ export function ProductManager() {
       });
       pendingCreate.current = null;
       fill(response.product);
-      // Product edits do not mutate this gallery; keep its local draft intact.
-      if (!id) void loadGallery(response.product.id);
+      await loadGallery(response.product.id);
       setCollection(current => current ? { ...current, products: [...current.products.filter(product => product.id !== response.product.id), response.product] } : current);
       setSuccess("تم حفظ المسودة بنجاح."); setExpired(false);
     } catch (err) { reportError(err); }
@@ -230,19 +232,19 @@ export function ProductManager() {
     {loading && <p role="status">جارٍ تحميل المنتجات…</p>}
     {error && <div role="alert" className="rounded-lg border border-rose-300 bg-rose-50 p-4"><p>{error}</p>
       {Object.keys(fields).length > 0 && <ul aria-label="تفاصيل أخطاء الحفظ">{Object.entries(fields).map(([field, message]) => <li key={field}>{fieldLabel(field) && `${fieldLabel(field)}: `}{message}</li>)}</ul>}{expired && <a className="underline" href="/admin/login" target="_blank" rel="noreferrer">تسجيل الدخول</a>}
-      <button type="button" className="mr-3 underline" disabled={saving || loading} onClick={() => void reload()}>إعادة تحميل البيانات</button>
+      <button type="button" className="mr-3 underline" disabled={saving || loading || galleryBusy} onClick={() => void reload()}>إعادة تحميل البيانات</button>
     </div>}
     {success && <p role="status" className="rounded-lg bg-green-50 p-4 text-green-800">{success}</p>}
     {collection && <>
       <div className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div><h2 className="text-lg font-bold">المنتجات</h2><p className="mt-1 text-sm text-slate-600">{collection.products.length} مسودات — اختر منتجًا لتعديله أو أضف مسودة جديدة.</p></div>
-          <button type="button" className={buttonStyle} disabled={saving || loading} onClick={reset}>منتج جديد</button>
+          <button type="button" className={buttonStyle} disabled={saving || loading || galleryBusy} onClick={reset}>منتج جديد</button>
         </div>
         {!collection.products.length && <p role="status" className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">لا توجد مسودات بعد.</p>}
-        <ul className="divide-y divide-slate-200">{collection.products.map(product => <li key={product.id} className="admin-product-list-item flex items-center justify-between py-4"><span className="font-semibold">{product.name}<span className="ms-2 inline-block rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">مسودة</span></span><button type="button" disabled={saving || loading} className={buttonStyle} onClick={() => void edit(product.id)}>تعديل {product.name}</button></li>)}</ul>
+        <ul className="divide-y divide-slate-200">{collection.products.map(product => <li key={product.id} className="admin-product-list-item flex items-center justify-between py-4"><span className="font-semibold">{product.name}<span className="ms-2 inline-block rounded-full border border-slate-300 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-600">مسودة</span></span><button type="button" disabled={saving || loading || galleryBusy} className={buttonStyle} onClick={() => void edit(product.id)}>تعديل {product.name}</button></li>)}</ul>
       </div>
-      <form onSubmit={save} className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs"><fieldset disabled={saving || loading} className="space-y-5">
+      <form onSubmit={save} className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs"><fieldset disabled={saving || loading || galleryBusy} className="space-y-5">
         <legend className="text-lg font-bold">{id ? "تعديل المسودة" : "إنشاء مسودة"}</legend>
         <label className="block">اسم المنتج<input aria-label="اسم المنتج" className={inputStyle} value={name} onChange={event => setName(event.target.value)} maxLength={200} {...accessible("name")} />{feedback("name")}</label>
         <label className="block">الوصف<textarea aria-label="الوصف" className={inputStyle} value={description} onChange={event => setDescription(event.target.value)} maxLength={5000} {...accessible("description")} />{feedback("description")}</label>
@@ -258,7 +260,7 @@ export function ProductManager() {
         {pricesNeedReview && <div role="alert" className="rounded-lg border p-3">
           <p>تغير سياق الأسعار من {pricing?.currency} ({pricing?.currencyScale}) إلى {collection.metadata.currency} ({collection.metadata.currencyScale}). راجع جميع الأسعار قبل الحفظ؛ ستبقى الأرقام المدخلة كما هي.</p>
           <button type="button" className={buttonStyle} onClick={() => { setPricing(collection.metadata); setPricesNeedReview(false); }}>راجعت الأسعار وأوافق على العملة الجديدة</button>
-          <button type="button" className="mr-3 underline" disabled={saving || loading} onClick={() => void reload()}>إعادة تحميل البيانات</button>
+          <button type="button" className="mr-3 underline" disabled={saving || loading || galleryBusy} onClick={() => void reload()}>إعادة تحميل البيانات</button>
         </div>}
         <p id="price-help" className="text-sm text-slate-600">استخدم الأرقام 0–9 والنقطة العشرية . لإدخال الأسعار، مثل 19.99.</p>
         {dimensionText !== appliedDimensions && <p role="status">طبّق تغييرات الأبعاد بزر توليد المتغيرات قبل الحفظ.</p>}
@@ -269,10 +271,13 @@ export function ProductManager() {
           <label>سعر المقارنة {index + 1}<input aria-label={`سعر المقارنة ${index + 1}`} dir="ltr" inputMode="decimal" className={inputStyle} value={row.comparePrice} onChange={event => changeRow(index, "comparePrice", event.target.value)} {...accessible(`variants.${index}.comparePriceMinor`)} />{feedback(`variants.${index}.comparePriceMinor`)}</label>
           {feedback(`variants.${index}.attributes`)}{feedback(`variants.${index}.id`)}
         </fieldset>)}</div>
-        <button className={`${buttonStyle} admin-primary-action w-full sm:w-auto`} type="submit" disabled={saving || loading || pricesNeedReview || dimensionText !== appliedDimensions}>{saving ? "جارٍ الحفظ…" : "حفظ المسودة"}</button>
+        <button className={`${buttonStyle} admin-primary-action w-full sm:w-auto`} type="submit" disabled={saving || loading || galleryBusy || pricesNeedReview || dimensionText !== appliedDimensions}>{saving ? "جارٍ الحفظ…" : "حفظ المسودة"}</button>
       </fieldset></form>
       <ProductGallery
         productId={id}
+        variants={persistedVariants}
+        productSaving={saving}
+        onBusyChange={setGalleryBusy}
         gallery={gallery}
         loading={galleryLoading || loading}
         error={galleryError}

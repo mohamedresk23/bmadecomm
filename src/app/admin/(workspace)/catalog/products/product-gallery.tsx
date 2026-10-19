@@ -5,6 +5,9 @@ import { GalleryDto, GalleryImageDto } from "../../../../../modules/catalog/prod
 
 interface ProductGalleryProps {
   productId?: string;
+  variants?: { id: string; sku: string; attributes: Record<string, string> }[];
+  productSaving?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   gallery: GalleryDto | null;
   loading: boolean;
   error: string | null;
@@ -21,8 +24,11 @@ export function ProductGallery(props: ProductGalleryProps) {
 
 function ProductGalleryState({
   productId,
-  gallery,
-  loading,
+  gallery: incomingGallery,
+  variants = [],
+  productSaving = false,
+  onBusyChange,
+  loading: incomingLoading,
   error,
   onRetry,
   csrf,
@@ -30,6 +36,14 @@ function ProductGalleryState({
   onGalleryUpdate,
   onDirtyChange,
 }: ProductGalleryProps) {
+  const loading = incomingLoading || productSaving;
+  const [gallery, setGallery] = useState(incomingGallery?.productId === productId ? incomingGallery : null);
+  const [localMappings, setLocalMappings] = useState<Record<string, string> | null>(null);
+  const mappings = localMappings ?? Object.fromEntries((gallery?.variantImages ?? []).map(item => [item.variantId, item.imageId]));
+  const [discardOnRefresh, setDiscardOnRefresh] = useState(false);
+  const [seenGallery, setSeenGallery] = useState(incomingGallery);
+  const variantIdentity = JSON.stringify(variants.map(variant => variant.id).sort());
+  const [seenVariants, setSeenVariants] = useState(variantIdentity);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [reloadKeys, setReloadKeys] = useState<Record<string, number>>({});
   const [uploading, setUploading] = useState(false);
@@ -65,7 +79,8 @@ function ProductGalleryState({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const orderDirty = orderedImages.some((image, index) => image.id !== gallery?.images[index]?.id);
-  const isDirty = orderDirty || ((gallery?.images.some((img) => {
+  const mappingDirty = JSON.stringify(Object.entries(mappings).filter(([,image]) => image).sort()) !== JSON.stringify((gallery?.variantImages ?? []).map(item => [item.variantId, item.imageId]).sort());
+  const isDirty = mappingDirty || orderDirty || ((gallery?.images.some((img) => {
     const local = localAltTexts[img.id];
     return local !== undefined && local.trim() !== img.altText.trim();
   })) ?? false);
@@ -77,14 +92,30 @@ function ProductGalleryState({
     };
   }, [isDirty, onDirtyChange]);
 
-  const [prevRevision, setPrevRevision] = useState(gallery?.revision);
-  if (gallery?.revision !== prevRevision) {
-    setPrevRevision(gallery?.revision);
-    setSaveError(null);
-    setIsStale(false);
-    setLocalOrder(null);
-    setLocalAltTexts({});
-    setFieldErrors({});
+  useEffect(() => {
+    onBusyChange?.(saving || uploading);
+    return () => onBusyChange?.(false);
+  }, [saving, uploading, onBusyChange]);
+
+  // Keep the reviewed snapshot until a successful explicit discard or save.
+  // A null/failed refresh must never erase local work.
+  if (incomingGallery?.productId === productId && incomingGallery && (incomingGallery !== seenGallery || variantIdentity !== seenVariants)) {
+    setSeenGallery(incomingGallery);
+    setSeenVariants(variantIdentity);
+    if (isDirty && !discardOnRefresh) {
+      if (incomingGallery.revision !== gallery?.revision || Object.entries(mappings).some(([variantId, imageId]) => imageId && !variants.some(variant => variant.id === variantId))) {
+        setIsStale(true);
+        const cleared = (gallery?.variantImages ?? []).filter(mapping => !incomingGallery.variantImages.some(item => item.variantId === mapping.variantId)).length;
+        setSaveError(`تغيرت تعيينات الصور.${cleared ? ` تم مسح ${cleared} من تعيينات المتغيرات؛ تستخدم الصورة الرئيسية الآن.` : ""} احتفظنا بتعديلاتك؛ أعد التحميل للتجاهل والمراجعة.`);
+      }
+    } else {
+      const cleared = (gallery?.variantImages ?? []).filter(mapping => !incomingGallery.variantImages.some(item => item.variantId === mapping.variantId));
+      setGallery(incomingGallery);
+      setLocalOrder(null); setLocalAltTexts({}); setLocalMappings(null);
+      setSaveError(null); setIsStale(false); setFieldErrors({});
+      if (cleared.length) setSaveSuccess(`تم مسح ${cleared.length} من تعيينات صور المتغيرات. تستخدم الصورة الرئيسية الآن.`);
+      setDiscardOnRefresh(false);
+    }
   }
 
   useEffect(() => {
@@ -174,6 +205,8 @@ function ProductGalleryState({
 
       const data = await res.json();
       if (controller.signal.aborted) return;
+      setGallery(data.gallery);
+      setLocalMappings(null);
       setLocalOrder(null);
       setLocalAltTexts({});
       setSelectedFile(null);
@@ -204,7 +237,7 @@ function ProductGalleryState({
     e.preventDefault();
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
@@ -213,7 +246,7 @@ function ProductGalleryState({
   const handleRetryUpload = async () => {
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
@@ -227,6 +260,7 @@ function ProductGalleryState({
     setIsStale(false);
     setFieldErrors({});
 
+    const submittedMappings = Object.entries(mappings).filter(([, imageId]) => imageId).map(([variantId, imageId]) => ({ variantId, imageId }));
     const imagesPayload = orderedImages.map((img) => ({
       id: img.id,
       altText: localAltTexts[img.id] !== undefined ? localAltTexts[img.id] : img.altText,
@@ -246,7 +280,7 @@ function ProductGalleryState({
         body: JSON.stringify({
           expectedRevision: gallery.revision,
           images: imagesPayload,
-          variantImages: [],
+          variantImages: submittedMappings,
         }),
       });
 
@@ -263,7 +297,11 @@ function ProductGalleryState({
           if (data?.error?.details && Array.isArray(data.error.details)) {
             const errors: Record<string, string> = {};
             for (const d of data.error.details) {
-              if (d.field) errors[d.field] = d.message;
+              if (d.field) {
+                const mapping = /^variantImages\.(\d+)(?:\.|$)/.exec(d.field);
+                const variantId = mapping ? submittedMappings[Number(mapping[1])]?.variantId : undefined;
+                errors[variantId ? `variantImages.${variantId}` : d.field] = d.message;
+              }
             }
             setFieldErrors(errors);
           }
@@ -279,6 +317,8 @@ function ProductGalleryState({
       }
 
       const data = await res.json();
+      setGallery(data.gallery);
+      setLocalMappings(null);
       setLocalAltTexts({});
       setLocalOrder(null);
       setFieldErrors({});
@@ -405,11 +445,8 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold text-blue-700 underline"
               onClick={() => {
-                if (!window.confirm("سيؤدي إعادة التحميل إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة. هل تريد المتابعة؟")) return;
-                setSaveError(null);
-                setLocalOrder(null);
-                setLocalAltTexts({});
-                setFieldErrors({});
+                if (!window.confirm("سيؤدي إعادة التحميل إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة. هل تريد المتابعة؟")) return;
+                setDiscardOnRefresh(true);
                 onRetry();
               }}
               data-testid="gallery-reload-button"
@@ -419,6 +456,23 @@ function ProductGalleryState({
           )}
         </div>
       )}
+
+      {gallery && <fieldset disabled={saving || uploading || loading || !!error || gallery.productId !== productId} className="space-y-3">
+        <legend className="font-semibold">صور المتغيرات المحفوظة</legend>
+        <p className="text-sm text-slate-600">احفظ المتغيرات الجديدة أولاً. بدون تعيين تستخدم الصورة الرئيسية، أو لا توجد صورة عندما يكون المعرض فارغاً.</p>
+        {variants.map(variant => <label key={variant.id} className="block text-sm">
+          {variant.sku} {Object.entries(variant.attributes).map(([name, value]) => `${name}: ${value}`).join(" / ")}
+          <select className="mt-1 block min-h-11 w-full rounded-lg border border-slate-400 bg-white p-2"
+            aria-invalid={!!fieldErrors[`variantImages.${variant.id}`]} aria-describedby={fieldErrors[`variantImages.${variant.id}`] ? `variant-image-error-${variant.id}` : undefined}
+            data-testid={`variant-image-${variant.id}`} aria-label={`صورة المتغير ${variant.sku}`}
+            value={mappings[variant.id] ?? ""} onChange={event => { setLocalMappings({ ...mappings, [variant.id]: event.target.value }); setSaveSuccess(null); }}>
+            <option value="">الصورة الرئيسية / بدون صورة</option>
+            {orderedImages.map((image, index) => <option key={image.id} value={image.id}>{index + 1}: {(localAltTexts[image.id] ?? image.altText).trim() || `الصورة ${index + 1} (بدون وصف)`}</option>)}
+          </select>
+          {fieldErrors[`variantImages.${variant.id}`] && <span id={`variant-image-error-${variant.id}`} role="alert">{fieldErrors[`variantImages.${variant.id}`]}</span>}
+        </label>)}
+        {Object.entries(fieldErrors).filter(([field]) => field.startsWith("variantImages")).map(([field, message]) => <p key={field} role="alert">{message}</p>)}
+      </fieldset>}
 
       {uploadError && (
         <div

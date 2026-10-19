@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
 import { DbContext, withTransaction } from "../../../../db/tx";
-import { categories, products, variants, variantAttributes, productCategories, storeSettings } from "../../../../db/schema";
+import { categories, products, variants, variantAttributes, productCategories, storeSettings, productMedia, variantMedia } from "../../../../db/schema";
 import { ApiError } from "../../../../shared/api/errors";
 import { writeAudit } from "../../../../shared/authz/audit";
 import { combinationKey, createProductSchema, updateProductSchema, CreateProductInput, UpdateProductInput, ProductDto, VariantDto } from "../contracts/product";
@@ -76,10 +76,12 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
   try {
     return await withTransaction(db, async tx => {
       let before: ProductDto | undefined;
+      let previousMediaRevision = BigInt(0);
       if (id) {
         const [existing] = await tx.select().from(products).where(eq(products.id, id)).for("update");
         if (!existing) throw ApiError.notFound("Product not found");
         if (existing.status !== "draft") throw ApiError.conflict("Only drafts can be edited");
+        previousMediaRevision = existing.mediaRevision;
         before = await getProductById(tx, id);
       }
       const [settings] = await tx.select().from(storeSettings).where(eq(storeSettings.id, "default")).for("share");
@@ -98,7 +100,11 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
         if (conflicts.some(conflict => conflict.sku === variant.sku && conflict.productId !== id)) throw ApiError.conflict("SKU already in use", [{ field: `variants.${index}.sku`, message: "SKU already in use" }]);
       });
       const productId = id ?? `prd_${createId()}`;
+      const mappings = id ? await tx.select().from(variantMedia).where(eq(variantMedia.productId, id)) : [];
+      const activeAttachments = id ? await tx.select({ id: productMedia.id }).from(productMedia).where(and(eq(productMedia.productId, id), isNull(productMedia.removedAt))).orderBy(asc(productMedia.id)).for("update") : [];
+      const keptMappings = mappings.filter(mapping => parsed.variants.some(variant => variant.id === mapping.variantId) && activeAttachments.some(image => image.id === mapping.productMediaId));
       if (id) {
+        await tx.delete(variantMedia).where(eq(variantMedia.productId, id));
         await tx.update(products).set({ name: parsed.name, description: parsed.description || null, updatedAt: new Date() }).where(eq(products.id, id));
         // Replacement allows simultaneous SKU/combination swaps while retaining IDs.
         await tx.delete(variants).where(eq(variants.productId, id));
@@ -117,11 +123,14 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
         const attrs = Object.entries(variant.attributes).map(([name, value]) => ({ variantId, name, value }));
         if (attrs.length) await tx.insert(variantAttributes).values(attrs);
       }
+      if (keptMappings.length) await tx.insert(variantMedia).values(keptMappings);
+      const clearedMappings = mappings.filter(mapping => !keptMappings.includes(mapping));
+      if (clearedMappings.length) await tx.update(products).set({ mediaRevision: sql`${products.mediaRevision} + 1` }).where(eq(products.id, productId));
       const after = await getProductById(tx, productId);
       await writeAudit(tx, {
         actor: actorId.startsWith("staff:") ? actorId : `staff:${actorId}`,
         action: id ? "product.updated" : "product.created", resource: `product:${productId}`,
-        diff: { ...(before ? { before } : {}), after }, requestId,
+        diff: { ...(before ? { before } : {}), after, ...(clearedMappings.length ? { previousMediaRevision: previousMediaRevision.toString(), mediaRevision: (previousMediaRevision + BigInt(1)).toString(), clearedVariantImages: clearedMappings.map(mapping => ({ variantId: mapping.variantId, imageId: mapping.productMediaId })) } : {}) }, requestId,
       });
       return after;
     });

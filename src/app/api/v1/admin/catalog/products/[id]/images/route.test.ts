@@ -12,6 +12,8 @@ import {
   operationKeys,
   products,
   productMedia,
+  variants,
+  variantMedia,
   roles,
   sessions,
   staffAccounts,
@@ -59,6 +61,7 @@ afterEach(async () => {
   await db.delete(operationKeys);
 
   for (const id of createdProducts) {
+    await db.delete(variantMedia).where(eq(variantMedia.productId, id));
     await db.delete(productMedia).where(eq(productMedia.productId, id));
     await db.delete(products).where(eq(products.id, id));
   }
@@ -1185,7 +1188,7 @@ describe("PUT /api/v1/admin/catalog/products/[id]/images - Update gallery", () =
     expect(detail).toBeTruthy();
   });
 
-  it("rejects non-empty variantImages with 422 (deferred to E04-03-06)", async () => {
+  it("rejects an unknown variant assignment with safe 422", async () => {
     const { token, csrf } = await staff();
     const productId = await createProductFixture();
     const [pim0] = await seedAttachments(productId, 1);
@@ -1362,3 +1365,29 @@ describe("PUT /api/v1/admin/catalog/products/[id]/images - Update gallery", () =
   });
 });
 
+
+
+describe("variant image API", () => {
+  it("persists shared mappings, treats mapping ordering as a no-op and clears omitted assignments", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const imageId = randomUUID();
+    const mediaId = await createMediaFixture(`${randomUUID()}.png`);
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "Mapped" });
+    const variantIds = [randomUUID(), randomUUID()];
+    await db.insert(variants).values(variantIds.map((id, index) => ({ id, productId, sku: `MAP-${id.toUpperCase()}`, combinationKey: `${index}`, priceMinor: BigInt(0), currency: "USD", currencyScale: 2, sortOrder: index })));
+    const payload = { expectedRevision: "0", images: [{ id: imageId, altText: "Mapped" }], variantImages: variantIds.map(variantId => ({ variantId, imageId })) };
+    const ctx = { params: Promise.resolve({ id: productId }) };
+    const save = async (body: unknown) => putGallery(makePutGalleryRequest(productId, body, token, csrf), ctx);
+    const saved = await save(payload); expect(saved.status).toBe(200);
+    expect((await saved.json()).gallery.variantImages).toHaveLength(2);
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    const noop = await save({ ...payload, expectedRevision: "1", variantImages: [...payload.variantImages].reverse() });
+    expect(noop.status).toBe(200); expect((await noop.json()).gallery.revision).toBe("1");
+    expect(await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`))).toHaveLength(audits.length);
+    const duplicate = await save({ ...payload, expectedRevision: "1", variantImages: [payload.variantImages[0], payload.variantImages[0]] });
+    expect(duplicate.status).toBe(422); expect(duplicate.headers.get("Cache-Control")).toContain("no-store");
+    const cleared = await save({ expectedRevision: "1", images: payload.images });
+    expect(cleared.status).toBe(200); expect((await cleared.json()).gallery).toMatchObject({ revision: "2", variantImages: [] });
+  });
+});

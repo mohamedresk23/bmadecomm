@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, foreignKey, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
@@ -336,6 +336,7 @@ export const variants = pgTable("variants", {
   sortOrder: integer("sort_order").notNull(),
 }, t => [
   uniqueIndex("variants_sku_unique").on(t.sku),
+  uniqueIndex("variants_product_id_uq").on(t.productId, t.id),
   uniqueIndex("variants_product_combination_unique").on(t.productId, t.combinationKey),
   check("variants_sku_normalized", sql`${t.sku} = upper(btrim(${t.sku})) AND ${t.sku} ~ '^[A-Z0-9][A-Z0-9._-]{0,63}$'`),
   check("variants_money_valid", sql`${t.priceMinor} >= 0 AND (${t.comparePriceMinor} IS NULL OR ${t.comparePriceMinor} >= ${t.priceMinor})`),
@@ -364,9 +365,20 @@ export const productMedia = pgTable("product_media", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [
   uniqueIndex("product_media_product_media_uq").on(t.productId, t.mediaId),
+  uniqueIndex("product_media_product_id_uq").on(t.productId, t.id),
   uniqueIndex("product_media_active_sort_order_uq").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
   index("product_media_active_ordered_idx").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
   index("product_media_reverse_media_idx").on(t.mediaId),
   check("product_media_sort_order_nonnegative", sql`${t.sortOrder} >= 0`),
+]);
+
+export const variantMedia = pgTable("variant_media", {
+  variantId: text("variant_id").primaryKey(),
+  productId: text("product_id").notNull(),
+  productMediaId: text("product_media_id").notNull(),
+}, t => [
+  foreignKey({ name: "variant_media_variant_fk", columns: [t.productId, t.variantId], foreignColumns: [variants.productId, variants.id] }).onDelete("restrict"),
+  foreignKey({ name: "variant_media_attachment_fk", columns: [t.productId, t.productMediaId], foreignColumns: [productMedia.productId, productMedia.id] }).onDelete("restrict"),
+  index("variant_media_attachment_idx").on(t.productMediaId),
 ]);
 

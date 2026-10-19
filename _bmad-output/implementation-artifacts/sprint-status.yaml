@@ -36,7 +36,7 @@ development_status:
   4-303-upload-a-draft-image-with-safe-retry: done
   4-304-save-alt-text-and-show-publication-readiness: done
   4-305-reorder-the-gallery-accessibly: done
-  4-306-map-images-to-variants-without-losing-assignments: backlog
+  4-306-map-images-to-variants-without-losing-assignments: review
   4-307-remove-gallery-images-while-retaining-history: backlog
   epic-4-retrospective: optional
 story_id_map:

@@ -69,8 +69,19 @@ export const updateGallerySchema = z.object({
       }
     }, "Revision exceeds maximum 64-bit integer"),
   images: z.array(updateGalleryImageItemSchema),
-  variantImages: z.array(variantImageAssignmentSchema).max(0, "Variant image mapping is deferred to E04-03-06").default([]),
-}).strict();
+  variantImages: z.array(variantImageAssignmentSchema).default([]),
+}).strict().superRefine((value, ctx) => {
+  const variants = new Set<string>();
+  const images = new Set(value.images.map(image => image.id));
+  value.images.forEach((image, index) => {
+    if (value.images.findIndex(item => item.id === image.id) !== index) ctx.addIssue({ code: "custom", path: ["images", index, "id"], message: "Duplicate image ID" });
+  });
+  value.variantImages.forEach((mapping, index) => {
+    if (variants.has(mapping.variantId)) ctx.addIssue({ code: "custom", path: ["variantImages", index, "variantId"], message: "Duplicate variant ID" });
+    if (!images.has(mapping.imageId)) ctx.addIssue({ code: "custom", path: ["variantImages", index, "imageId"], message: "Select an active image" });
+    variants.add(mapping.variantId);
+  });
+});
 
 export type UpdateGalleryDto = z.infer<typeof updateGallerySchema>;
 export type UpdateGalleryImageItemDto = z.infer<typeof updateGalleryImageItemSchema>;

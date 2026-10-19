@@ -38,6 +38,109 @@ const mockGallery: GalleryDto = {
   ],
 };
 
+describe("persisted variant image selectors", () => {
+  const variants: { id: string; sku: string; attributes: Record<string, string> }[] = [{ id: "v1", sku: "RED-S", attributes: { color: "red", size: "s" } }, { id: "v2", sku: "BLUE-M", attributes: { color: "blue" } }];
+  const props = { productId: "prd_123", variants, gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };
+  it("ignores another product snapshot across a failed switch and accepts the matching refresh cleanly", () => {
+    const { rerender } = render(<ProductGallery {...props} />);
+    rerender(<ProductGallery {...props} productId="other" gallery={mockGallery} error="Failed switch" />);
+    expect(screen.queryByTestId("gallery-image-pim_1")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    rerender(<ProductGallery {...props} productId="other" gallery={{ ...mockGallery, productId: "other" }} />);
+    expect(screen.getByTestId("gallery-image-pim_1")).toBeTruthy();
+    expect((screen.getByTestId("variant-image-v1").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+  });
+  it("offers explicit recovery when a locally mapped variant is removed without changing revision", () => {
+    const retry = vi.fn();
+    const { rerender } = render(<ProductGallery {...props} onRetry={retry} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Keep pending description" } });
+    rerender(<ProductGallery {...props} variants={[variants[1]]} gallery={{ ...mockGallery }} onRetry={retry} />);
+    expect(screen.queryByTestId("variant-image-v1")).toBeNull();
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Keep pending description");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("gallery-reload-button"));
+    expect(confirm.mock.calls[0][0]).toContain("تعيينات صور المتغيرات");
+    expect(retry).toHaveBeenCalledOnce();
+    rerender(<ProductGallery {...props} variants={[variants[1]]} gallery={{ ...mockGallery }} onRetry={retry} />);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    expect(screen.queryByTestId("gallery-reload-button")).toBeNull();
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("");
+  });
+  it("associates indexed mapping errors with the submitted variant and summarizes unmatched errors", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422, json: async () => ({ error: { message: "Validation failed", details: [{ field: "variantImages.0.imageId", message: "Choose an active image" }, { field: "variantImages.99", message: "Unmatched mapping issue" }] } }) }));
+    render(<ProductGallery {...props} />);
+    expect(screen.getAllByRole("option", { name: /الصورة 1 \(بدون وصف\)/ })).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("variant-image-v2"), { target: { value: "pim_1" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await screen.findByTestId("gallery-save-error");
+    const select = screen.getByTestId("variant-image-v2");
+    expect(select.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(select.getAttribute("aria-describedby")!)?.textContent).toBe("Choose an active image");
+    expect(screen.getByTestId("variant-image-v1").getAttribute("aria-invalid")).toBe("false");
+    expect(screen.getByText("Unmatched mapping issue")).toBeTruthy();
+  });
+  it("maps and shares persisted IDs, includes mapping changes in dirty/save, and clears with fallback", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ gallery: { ...mockGallery, revision: "1", variantImages: variants.map(variant => ({ variantId: variant.id, imageId: "pim_2" })) } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const update = vi.fn();
+    render(<ProductGallery {...props} onGalleryUpdate={update} />);
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("variant-image-v2"), { target: { value: "pim_2" } });
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await waitFor(() => expect(update).toHaveBeenCalledOnce());
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.variantImages).toEqual(variants.map(variant => ({ variantId: variant.id, imageId: "pim_2" })));
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "" } });
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+  it("keeps local order, alt and mapping with the original revision through null/failed/stale refresh", async () => {
+    const retry = vi.fn();
+    const { rerender } = render(<ProductGallery {...props} onRetry={retry} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Keep description" } });
+    fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+    rerender(<ProductGallery {...props} gallery={null} loading={true} onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={null} error="Failed refresh" onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "2" }} onRetry={retry} />);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Keep description");
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("pim_2");
+    expect(screen.getAllByTestId(/^gallery-image-/)[0].getAttribute("data-testid")).toBe("gallery-image-pim_2");
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("gallery-reload-button"));
+    expect(retry).toHaveBeenCalledOnce();
+    rerender(<ProductGallery {...props} gallery={null} error="Still failed" onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "2" }} onRetry={retry} />);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe(mockGallery.images[0].altText);
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("");
+  });
+  it("announces cleared mappings after a clean product refresh and disables conflicting writes", () => {
+    const mapped = { ...mockGallery, variantImages: [{ variantId: "v1", imageId: "pim_2" }] };
+    const { rerender } = render(<ProductGallery {...props} gallery={mapped} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "1" }} productSaving />);
+    expect(screen.getByTestId("gallery-save-success").textContent).toContain("تم مسح 1");
+    expect((screen.getByTestId("variant-image-v1").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+  });
+  it.each([401, 422, 503])("retains entered mapping and original revision after HTTP %s", async status => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ error: { message: "Save failed", details: [{ field: "variantImages.0", message: "Review mapping" }] } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProductGallery {...props} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await waitFor(() => expect(screen.getByTestId("gallery-save-error")).toBeTruthy());
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("pim_2");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedRevision).toBe(mockGallery.revision);
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+});
+
 describe("ProductGallery UI component", () => {
   it("renders empty state placeholder for unsaved product", () => {
     render(<ProductGallery gallery={null} loading={false} error={null} onRetry={() => {}} />);
