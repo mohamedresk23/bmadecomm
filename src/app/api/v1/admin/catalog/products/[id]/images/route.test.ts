@@ -32,7 +32,9 @@ import * as imageProcessor from "../../../../../../../../lib/media/image-process
 import * as auditModule from "../../../../../../../../shared/authz/audit";
 import { GET as getGallery, POST as postImage, PUT as putGallery } from "./route";
 import { GET as getPreview } from "./[imageId]/content/route";
+import { DELETE as deleteImage } from "./[imageId]/route";
 import { POST as publishImage } from "../../../../../../media/publish/route";
+
 
 const isolated = { root: "", adapter: null as unknown as LocalFileSystemAdapter };
 const createdUsers: string[] = [];
@@ -1391,3 +1393,313 @@ describe("variant image API", () => {
     expect(cleared.status).toBe(200); expect((await cleared.json()).gallery).toMatchObject({ revision: "2", variantImages: [] });
   });
 });
+
+function makeDeleteImageRequest(
+  productId: string,
+  imageId: string,
+  body: unknown,
+  token?: string,
+  csrf?: string,
+  options: { correlationId?: string; contentType?: string } = {}
+) {
+  const headers: Record<string, string> = {
+    "Content-Type": options.contentType ?? "application/json",
+  };
+  if (token) headers["Cookie"] = `__Host-staff-session=${token}`;
+  if (csrf) headers["X-CSRF-Token"] = csrf;
+  if (options.correlationId) headers["X-Correlation-Id"] = options.correlationId;
+
+  return new Request(`http://localhost:3000/api/v1/admin/catalog/products/${productId}/images/${imageId}`, {
+    method: "DELETE",
+    headers,
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+}
+
+describe("DELETE /api/v1/admin/catalog/products/[id]/images/[imageId] - Remove gallery image", () => {
+  it("rejects unauthenticated requests with 401", async () => {
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("auth.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    const req = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" });
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects non-catalog staff session with 403", async () => {
+    const nonCatalog = await staff("order_manager");
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("role.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    const req = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" }, nonCatalog.token, nonCatalog.csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error.code).toBe("FORBIDDEN");
+  });
+
+  it("rejects invalid or missing CSRF token with 403", async () => {
+    const { token } = await staff();
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("csrf.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    // Missing CSRF
+    const reqNoCsrf = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" }, token, undefined);
+    const resNoCsrf = await deleteImage(reqNoCsrf, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(resNoCsrf.status).toBe(403);
+
+    // Invalid CSRF
+    const reqBadCsrf = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" }, token, "bad-csrf-token");
+    const resBadCsrf = await deleteImage(reqBadCsrf, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(resBadCsrf.status).toBe(403);
+  });
+
+  it("returns 404 for unknown product or cross-product image", async () => {
+    const { token, csrf } = await staff();
+    const productA = await createProductFixture("Product A");
+    const productB = await createProductFixture("Product B");
+    const mediaId = await createMediaFixture("foreign.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId: productA, mediaId, sortOrder: 0, altText: "" });
+
+    // Request deletion on productB for image belonging to productA
+    const reqCross = makeDeleteImageRequest(productB, imageId, { expectedRevision: "0" }, token, csrf);
+    const resCross = await deleteImage(reqCross, { params: Promise.resolve({ id: productB, imageId }) });
+    expect(resCross.status).toBe(404);
+
+    // Request deletion on unknown product
+    const reqUnknown = makeDeleteImageRequest("prd_unknown", imageId, { expectedRevision: "0" }, token, csrf);
+    const resUnknown = await deleteImage(reqUnknown, { params: Promise.resolve({ id: "prd_unknown", imageId }) });
+    expect(resUnknown.status).toBe(404);
+  });
+
+  it("rejects non-draft product with 409 Conflict", async () => {
+    const { token, csrf } = await staff();
+    const publishedProduct = await createProductFixture("Published", "published");
+    const mediaId = await createMediaFixture("pub.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId: publishedProduct, mediaId, sortOrder: 0, altText: "" });
+
+    const req = makeDeleteImageRequest(publishedProduct, imageId, { expectedRevision: "0" }, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: publishedProduct, imageId }) });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.message).toContain("draft");
+  });
+
+  it("rejects stale revision with 409 STALE_GALLERY and leaves gallery unchanged", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("stale.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    const req = makeDeleteImageRequest(productId, imageId, { expectedRevision: "42" }, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error.code).toBe("STALE_GALLERY");
+
+    // DB remains active
+    const [row] = await db.select().from(productMedia).where(eq(productMedia.id, imageId));
+    expect(row.removedAt).toBeNull();
+  });
+
+  it("rejects invalid expectedRevision (exceeding 64-bit int or extra properties) with 422", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("invalid.png");
+    const imageId = `pim_${randomUUID().slice(0, 8)}`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    // Exceeding 64-bit integer
+    const req1 = makeDeleteImageRequest(productId, imageId, { expectedRevision: "9223372036854775808" }, token, csrf);
+    const res1 = await deleteImage(req1, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res1.status).toBe(422);
+
+    // Extra property rejected by strict schema
+    const req2 = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0", extra: "forbidden" }, token, csrf);
+    const res2 = await deleteImage(req2, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res2.status).toBe(422);
+  });
+
+  it("rejects non-JSON content type with 415", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const imageId = "pim_test";
+
+    const req = makeDeleteImageRequest(productId, imageId, "not json", token, csrf, { contentType: "text/plain" });
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(415);
+  });
+
+  it("soft-removes primary image, clears variant mappings, compacts sort orders, updates primary fallback, retains media file bytes, and renders preview 404", async () => {
+    const { token, csrf, userId } = await staff();
+    const productId = await createProductFixture();
+    const mediaBytes = Buffer.from("surviving-private-bytes");
+    const media0 = await createMediaFixture("m0.png", mediaBytes);
+    const media1 = await createMediaFixture("m1.png");
+    const media2 = await createMediaFixture("m2.png");
+
+    const pim0 = `pim_del_0`;
+    const pim1 = `pim_del_1`;
+    const pim2 = `pim_del_2`;
+
+    await db.insert(productMedia).values([
+      { id: pim0, productId, mediaId: media0, sortOrder: 0, altText: "First" },
+      { id: pim1, productId, mediaId: media1, sortOrder: 1, altText: "Second" },
+      { id: pim2, productId, mediaId: media2, sortOrder: 2, altText: "Third" },
+    ]);
+
+    const variantId = randomUUID();
+    await db.insert(variants).values({
+      id: variantId,
+      productId,
+      sku: "VAR-MAP-1",
+      combinationKey: "color:red",
+      priceMinor: BigInt(0),
+      currency: "USD",
+      currencyScale: 2,
+      sortOrder: 0,
+    });
+    // Map variant to pim0
+    await db.insert(variantMedia).values({
+      productId,
+      variantId,
+      productMediaId: pim0,
+    });
+
+    // Send DELETE for pim0
+    const req = makeDeleteImageRequest(productId, pim0, { expectedRevision: "0" }, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId: pim0 }) });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
+
+    const data = await res.json();
+    expect(data.success).toBe(true);
+    expect(data.gallery.revision).toBe("1");
+    // New primary image is pim1
+    expect(data.gallery.primaryImageId).toBe(pim1);
+    expect(data.gallery.images).toHaveLength(2);
+    expect(data.gallery.images[0].id).toBe(pim1);
+    expect(data.gallery.images[0].position).toBe(0);
+    expect(data.gallery.images[1].id).toBe(pim2);
+    expect(data.gallery.images[1].position).toBe(1);
+    // Variant mapping to pim0 cleared
+    expect(data.gallery.variantImages).toEqual([]);
+
+    // Check DB state: pim0 soft-removed
+    const [pm0Row] = await db.select().from(productMedia).where(eq(productMedia.id, pim0));
+    expect(pm0Row.removedAt).not.toBeNull();
+
+    // Check DB state: pim1 and pim2 compacted to 0 and 1
+    const [pm1Row] = await db.select().from(productMedia).where(eq(productMedia.id, pim1));
+    expect(pm1Row.sortOrder).toBe(0);
+    const [pm2Row] = await db.select().from(productMedia).where(eq(productMedia.id, pim2));
+    expect(pm2Row.sortOrder).toBe(1);
+
+    // Check DB state: variant_media row for pim0 deleted
+    const vmMappings = await db.select().from(variantMedia).where(eq(variantMedia.productId, productId));
+    expect(vmMappings).toHaveLength(0);
+
+    // Media row in media table survives!
+    const [m0Row] = await db.select().from(media).where(eq(media.id, media0));
+    expect(m0Row).toBeTruthy();
+
+    // Storage file on disk survives!
+    const fileBytes = await isolated.adapter.readPrivate("m0.png");
+    expect(fileBytes).toEqual(mediaBytes);
+
+    // Audit log written
+    const audits = await db.select().from(auditEvents).where(eq(auditEvents.resource, `product:${productId}`));
+    const detachAudit = audits.find((a) => a.action === "catalog.product.image.detach");
+    expect(detachAudit).toBeTruthy();
+    expect(detachAudit?.actor).toBe(`staff:${userId}`);
+
+    // GET content preview for soft-removed image immediately returns 404!
+    const previewReq = new Request(`http://localhost:3000/api/v1/admin/catalog/products/${productId}/images/${pim0}/content`, {
+      headers: { Cookie: `__Host-staff-session=${token}` },
+    });
+    const previewRes = await getPreview(previewReq, { params: Promise.resolve({ id: productId, imageId: pim0 }) });
+    expect(previewRes.status).toBe(404);
+  });
+
+  it("removing the last image yields empty gallery with primaryImageId null and empty arrays", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("only.png");
+    const imageId = `pim_only`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "Single image" });
+
+    const req = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" }, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+
+    expect(res.status).toBe(200);
+    const data = await res.json();
+    expect(data.gallery).toEqual({
+      productId,
+      revision: "1",
+      primaryImageId: null,
+      images: [],
+      variantImages: [],
+      publicationIssues: [],
+    });
+  });
+
+  it("rolls back soft-deletion, sort_order compaction, and revision on audit failure", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const mediaId = await createMediaFixture("rollback.png");
+    const imageId = `pim_rollback`;
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId, sortOrder: 0, altText: "" });
+
+    vi.spyOn(auditModule, "writeAudit").mockRejectedValueOnce(new Error("Audit failure during detach"));
+
+    const req = makeDeleteImageRequest(productId, imageId, { expectedRevision: "0" }, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(500);
+
+    // Verify rollback: image is still active and revision is still 0
+    const [row] = await db.select().from(productMedia).where(eq(productMedia.id, imageId));
+    expect(row.removedAt).toBeNull();
+    const [prod] = await db.select().from(products).where(eq(products.id, productId));
+    expect(prod.mediaRevision).toBe(BigInt(0));
+  });
+
+  it("rejects DELETE request exceeding MAX_DELETE_BODY (1024 bytes) with 413 PAYLOAD_TOO_LARGE", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const imageId = `pim_large`;
+
+    const oversizedBody = JSON.stringify({
+      expectedRevision: "0",
+      padding: "x".repeat(2000),
+    });
+
+    const req = makeDeleteImageRequest(productId, imageId, oversizedBody, token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(413);
+    const body = await res.json();
+    expect(body.error.code).toBe("PAYLOAD_TOO_LARGE");
+  });
+
+  it("rejects malformed JSON on DELETE with 400 BAD_REQUEST", async () => {
+    const { token, csrf } = await staff();
+    const productId = await createProductFixture();
+    const imageId = `pim_malformed`;
+
+    const req = makeDeleteImageRequest(productId, imageId, "{ not a json }", token, csrf);
+    const res = await deleteImage(req, { params: Promise.resolve({ id: productId, imageId }) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+  });
+});
+

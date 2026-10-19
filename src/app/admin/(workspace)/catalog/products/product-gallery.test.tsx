@@ -825,3 +825,244 @@ it("announces moved identity and a fresh sequence even for repeated destinations
   expect(first).toMatch(/1:/); expect(second).toMatch(/2:/); expect(third).toMatch(/3:/);
   expect(new Set([first,second,third]).size).toBe(3);
 });
+
+describe("ProductGallery image removal UI", () => {
+  it("renders remove button on each image card and opens accessible confirmation dialog", () => {
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+    const removeBtn1 = screen.getByTestId("gallery-remove-pim_1");
+    const removeBtn2 = screen.getByTestId("gallery-remove-pim_2");
+    expect(removeBtn1).toBeTruthy();
+    expect(removeBtn2).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(removeBtn1);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("gallery-remove-dialog-title");
+    expect(screen.getByText("تأكيد إزالة الصورة")).toBeTruthy();
+    expect(screen.getByText(/فك ارتباط الصورة من أي متغيرات مرتبطة بها/)).toBeTruthy();
+    expect(screen.getByText(/لن يتم حذف ملف الصورة الأصلي/)).toBeTruthy();
+  });
+
+  it("cancels removal when clicking 'إلغاء' without sending request and restores focus", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+
+    const removeBtn = screen.getByTestId("gallery-remove-pim_1");
+    removeBtn.focus();
+    fireEvent.click(removeBtn);
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    const cancelBtn = screen.getByTestId("gallery-remove-cancel");
+    fireEvent.click(cancelBtn);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(removeBtn);
+  });
+
+  it("warns about unsaved edits in confirmation dialog when gallery is dirty", () => {
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+
+    const altInput = screen.getByTestId("gallery-alt-input-pim_1");
+    fireEvent.change(altInput, { target: { value: "Dirty alt edit" } });
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_2"));
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText(/لديك تعديلات غير محفوظة في المعرض/)).toBeTruthy();
+  });
+
+  it("sends DELETE request with expectedRevision and CSRF token upon confirmation", async () => {
+    const onGalleryUpdate = vi.fn();
+    const updatedGallery: GalleryDto = {
+      ...mockGallery,
+      revision: "2",
+      primaryImageId: "pim_2",
+      images: [mockGallery.images[1]],
+      variantImages: [],
+      publicationIssues: [],
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, gallery: updatedGallery }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        csrf="csrf_token_del"
+        onGalleryUpdate={onGalleryUpdate}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    const confirmBtn = screen.getByTestId("gallery-remove-confirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledOnce();
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("/api/v1/admin/catalog/products/prd_123/images/pim_1");
+    expect(init?.method).toBe("DELETE");
+    expect((init?.headers as Record<string, string>)["X-CSRF-Token"]).toBe("csrf_token_del");
+    expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init?.body as string)).toEqual({ expectedRevision: "1" });
+
+    await waitFor(() => {
+      expect(onGalleryUpdate).toHaveBeenCalledWith(updatedGallery);
+      expect(document.activeElement).toBe(screen.getByTestId("gallery-remove-pim_2"));
+    });
+
+    // Check announcement
+    expect(screen.getByTestId("gallery-move-status").textContent).toContain("تمت إزالة الصورة");
+  });
+
+  it("dismisses removal confirmation dialog and restores focus when Escape key is pressed", () => {
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    const removeBtn = screen.getByTestId("gallery-remove-pim_1");
+    fireEvent.click(removeBtn);
+    const dialog = screen.getByTestId("gallery-remove-dialog");
+    expect(dialog).toBeTruthy();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByTestId("gallery-remove-dialog")).toBeNull();
+    expect(document.activeElement).toBe(removeBtn);
+  });
+
+  it("displays empty gallery state and focuses upload input when the last image is removed", async () => {
+    const singleImageGallery: GalleryDto = {
+      ...mockGallery,
+      images: [mockGallery.images[0]],
+      primaryImageId: "pim_1",
+    };
+    const emptyGallery: GalleryDto = {
+      ...mockGallery,
+      revision: "2",
+      images: [],
+      primaryImageId: null,
+      variantImages: [],
+      publicationIssues: [],
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, gallery: emptyGallery }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={singleImageGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    await waitFor(() => {
+      expect(screen.getByText("لا توجد صور بعد.")).toBeTruthy();
+    });
+
+    const uploadInput = screen.getByTestId("gallery-upload-input");
+    expect(document.activeElement).toBe(uploadInput);
+  });
+
+  it("preserves dirty local edits and displays conflict alert when removal fails with 409 STALE_GALLERY", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { code: "STALE_GALLERY", message: "Stale revision" } }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    const altInput = screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement;
+    fireEvent.change(altInput, { target: { value: "Dirty uncommitted alt" } });
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_2"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gallery-save-error")).toBeTruthy();
+    });
+
+    expect(screen.getByTestId("gallery-reload-button")).toBeTruthy();
+    // Local dirty edits preserved
+    expect(altInput.value).toBe("Dirty uncommitted alt");
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+
+  it("coordinates busy state and disables controls while removal request is pending", async () => {
+    const onBusyChange = vi.fn();
+    let resolveDelete!: (res: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      () => new Promise((resolve) => { resolveDelete = resolve; })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        onBusyChange={onBusyChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    // In-flight
+    expect(onBusyChange).toHaveBeenCalledWith(true);
+
+    const uploadInput = screen.getByTestId("gallery-upload-input") as HTMLInputElement;
+    expect(uploadInput.disabled).toBe(true);
+
+    resolveDelete(
+      new Response(JSON.stringify({ success: true, gallery: { ...mockGallery, revision: "2" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await waitFor(() => {
+      expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+});
+

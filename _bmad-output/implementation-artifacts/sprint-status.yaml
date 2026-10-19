@@ -33,13 +33,15 @@ development_status:
   # See spec-e04-03-05-reorder-the-gallery-accessibly.md and verification-e04-03-05.md.
   # 06 implemented, independently reviewed, verified on PostgreSQL and browser, and accepted by human approval on 2026-10-19.
   # See spec-e04-03-06-map-images-to-variants-without-losing-assignments.md, verification-e04-03-06.md, and walkthrough-e04-03-06.md.
+  # 07 implemented, independently reviewed (all 7 review patches verified), tested on real PostgreSQL & browser, accepted.
+  # See spec-e04-03-07-remove-gallery-images-while-retaining-history.md and verification-e04-03-07.md.
   4-301-secure-and-validate-existing-media-upload: done
   4-302-read-and-privately-preview-a-product-gallery: done
   4-303-upload-a-draft-image-with-safe-retry: done
   4-304-save-alt-text-and-show-publication-readiness: done
   4-305-reorder-the-gallery-accessibly: done
   4-306-map-images-to-variants-without-losing-assignments: done
-  4-307-remove-gallery-images-while-retaining-history: backlog
+  4-307-remove-gallery-images-while-retaining-history: done
   epic-4-retrospective: optional
 story_id_map:
   4-301-secure-and-validate-existing-media-upload: E04-03-01

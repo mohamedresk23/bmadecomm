@@ -12,6 +12,7 @@ import { hasAnimation } from "../../../../lib/media/image-policy";
 import { checkMagicBytes, ALLOWED_MIME_TYPES } from "../../../../lib/media/upload";
 import { throttleStaffUpload } from "../infrastructure/upload-rate-limit";
 import {
+  DeleteGalleryImageDto,
   GalleryDto,
   GalleryImageDto,
   UpdateGalleryDto,
@@ -20,6 +21,7 @@ import {
   MAX_FILE_SIZE,
   IDEMPOTENCY_WINDOW_MS,
 } from "../contracts/gallery";
+
 
 
 export async function getGalleryByProductId(db: DbContext, productId: string): Promise<GalleryDto> {
@@ -627,6 +629,138 @@ export async function updateGallery(
   });
 }
 
+export type DeleteGalleryImageInput = {
+  productId: string;
+  imageId: string;
+  staffUserId: string;
+  requestId: string;
+  payload: DeleteGalleryImageDto;
+};
+
+export async function deleteGalleryImage(
+  db: DbContext,
+  input: DeleteGalleryImageInput
+): Promise<GalleryDto> {
+  const { productId, imageId, staffUserId, requestId, payload } = input;
+
+  if (!productId.trim() || /[\x00-\x1f\x7f]/.test(productId) || !imageId.trim() || /[\x00-\x1f\x7f]/.test(imageId)) {
+    throw ApiError.badRequest("Valid product and image identifiers required");
+  }
+
+  return await withTransaction(db, async (tx) => {
+    // 1. Lock product row FOR UPDATE (Canonical lock order 1)
+    const [product] = await tx
+      .select({
+        id: products.id,
+        status: products.status,
+        mediaRevision: products.mediaRevision,
+      })
+      .from(products)
+      .where(eq(products.id, productId))
+      .for("update");
+
+    if (!product) {
+      throw ApiError.notFound("Product not found");
+    }
+
+    if (product.status !== "draft") {
+      throw ApiError.conflict("Product images can only be removed from draft products");
+    }
+
+    // 2. Lock active product_media rows in stable id ASC order FOR UPDATE (Canonical lock order 2)
+    const lockedMediaRows = await tx
+      .select({
+        id: productMedia.id,
+        mediaId: productMedia.mediaId,
+        sortOrder: productMedia.sortOrder,
+        altText: productMedia.altText,
+        createdAt: productMedia.createdAt,
+      })
+      .from(productMedia)
+      .where(and(eq(productMedia.productId, productId), isNull(productMedia.removedAt)))
+      .orderBy(asc(productMedia.id))
+      .for("update");
+
+    const targetImage = lockedMediaRows.find((row) => row.id === imageId);
+    if (!targetImage) {
+      throw ApiError.notFound("Image not found");
+    }
+
+    // 3. Stale revision check
+    if (product.mediaRevision.toString() !== payload.expectedRevision) {
+      throw new ApiError(409, "STALE_GALLERY", "Gallery has been modified by another operation. Please reload.");
+    }
+
+    // 4. Soft remove attachment (never delete media row or private disk file)
+    await tx
+      .update(productMedia)
+      .set({
+        removedAt: sql`clock_timestamp()`,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(eq(productMedia.id, imageId));
+
+    // 5. Clear variant mappings pointing to this attachment
+    const removedMappings = await tx
+      .delete(variantMedia)
+      .where(and(
+        eq(variantMedia.productId, productId),
+        eq(variantMedia.productMediaId, imageId)
+      ))
+      .returning();
+
+
+    // 6. Compact sortOrder of remaining active images to contiguous 0-based indices
+    const remainingRows = lockedMediaRows
+      .filter((row) => row.id !== imageId)
+      .sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+        if (a.createdAt.getTime() !== b.createdAt.getTime()) return a.createdAt.getTime() - b.createdAt.getTime();
+        return a.id.localeCompare(b.id);
+      });
+
+    for (let i = 0; i < remainingRows.length; i++) {
+      if (remainingRows[i].sortOrder !== i) {
+        await tx
+          .update(productMedia)
+          .set({
+            sortOrder: i,
+            updatedAt: sql`clock_timestamp()`,
+          })
+          .where(eq(productMedia.id, remainingRows[i].id));
+      }
+    }
+
+    // 7. Increment mediaRevision
+    const newRevision = product.mediaRevision + BigInt(1);
+    await tx
+      .update(products)
+      .set({
+        mediaRevision: newRevision,
+        updatedAt: sql`clock_timestamp()`,
+      })
+      .where(eq(products.id, productId));
+
+    // 8. Write transactional audit log
+    await writeAudit(tx, {
+      actor: `staff:${staffUserId}`,
+      action: "catalog.product.image.detach",
+      resource: `product:${productId}`,
+      diff: {
+        productMediaId: imageId,
+        mediaId: targetImage.mediaId,
+        sortOrder: targetImage.sortOrder,
+        previousRevision: product.mediaRevision.toString(),
+        mediaRevision: newRevision.toString(),
+        clearedVariantImages: removedMappings.map((m) => ({ variantId: m.variantId, imageId })),
+      },
+      requestId,
+    });
+
+    // 9. Return updated gallery DTO
+    return await getGalleryByProductId(tx, productId);
+  });
+}
 
 /** Internal projection; private image URLs must never enter public product DTOs. */
 export function resolveVariantImage(gallery: GalleryDto, variantId: string): GalleryImageDto | null {
@@ -634,4 +768,5 @@ export function resolveVariantImage(gallery: GalleryDto, variantId: string): Gal
   return gallery.images.find(image => image.id === mapped?.imageId)
     ?? gallery.images.find(image => image.id === gallery.primaryImageId) ?? null;
 }
+
 

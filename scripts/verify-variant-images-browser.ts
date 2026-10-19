@@ -89,7 +89,12 @@ async function main() {
     const evidence: unknown[] = [];
     for (const width of [320,768,1024,1440]) {
       await db.delete(schema.variantMedia);
+      await db.delete(schema.productMedia);
       await db.delete(schema.variants);
+      await client`UPDATE products SET media_revision = 0 WHERE id = 'gallery-browser-product'`;
+      for (let i = 0; i < 3; i++) {
+        await db.insert(schema.productMedia).values({ id: `image-${i}`, productId: "gallery-browser-product", mediaId: `media-${i}`, sortOrder: i, altText: `Description ${i}` });
+      }
       await db.insert(schema.variants).values(["red","blue"].map((color,index) => ({ id: `v${index}`, productId: "gallery-browser-product", sku: `SKU-${index}`, combinationKey: `color:${color}`, priceMinor: BigInt(0), currency: "USD", currencyScale: 2, sortOrder: index })));
       await db.insert(schema.variantAttributes).values(["red","blue"].map((value,index) => ({ variantId: `v${index}`, name: "color", value })));
       const context = await browser.newContext({ viewport: { width, height: 1000 }, hasTouch: true });
@@ -125,10 +130,75 @@ async function main() {
       assert.equal(await page.getByTestId("variant-image-v0").inputValue(),"image-1");
       await page.getByTestId("variant-image-v0").selectOption(""); await saveGallery(); await open();
       assert.equal(await page.getByTestId("variant-image-v0").inputValue(),"");
+
+      // --- Slice 7: Remove gallery images while retaining history ---
+      // Map v0 to image-1 and save gallery
+      await page.getByTestId("variant-image-v0").selectOption("image-1");
+      await saveGallery();
+      assert.equal(await page.getByTestId("variant-image-v0").inputValue(), "image-1");
+
+      // Cancel removal: opens dialog, clicking cancel closes dialog and retains image
+      await page.getByTestId("gallery-remove-image-1").click();
+      await page.getByTestId("gallery-remove-dialog").waitFor();
+      await page.getByTestId("gallery-remove-cancel").click();
+      await page.getByTestId("gallery-remove-dialog").waitFor({ state: "detached" });
+      assert.equal(await page.getByTestId("gallery-remove-image-1").count(), 1);
+
+      // Dirty warning in removal confirmation
+      await page.getByTestId("gallery-alt-input-image-0").fill(`Dirty alt ${width}`);
+      await page.getByTestId("gallery-remove-image-1").click();
+      await page.getByTestId("gallery-remove-dialog").waitFor();
+      assert.ok(await page.getByTestId("gallery-remove-dialog").getByText(/تعديلات غير محفوظة/).isVisible());
+
+      // Confirm removal of mapped image-1
+      const removeMappedPromise = page.waitForResponse(r => r.request().method() === "DELETE" && r.url().includes("/images/image-1"));
+      await page.getByTestId("gallery-remove-confirm").click();
+      const removeMappedRes = await removeMappedPromise;
+      assert.equal(removeMappedRes.status(), 200);
+      await page.waitForFunction(() => !document.querySelector('section[aria-busy="true"]'));
+      await page.getByTestId("gallery-remove-image-1").waitFor({ state: "detached" });
+
+      // Verify variant mapping for v0 was cleared, falling back to primary image (value "")
+      assert.equal(await page.getByTestId("variant-image-v0").inputValue(), "");
+
+      // Verify private preview of detached image returns 404 to staff session
+      const staffPreviewStatus = await page.evaluate(async (url) => (await fetch(url)).status, `${origin}/api/v1/admin/catalog/products/gallery-browser-product/images/image-1/content`);
+      assert.equal(staffPreviewStatus, 404, "Preview endpoint returns 404 for detached image");
+
+      // Verify guest request cannot access draft image preview (returns 401 or 403)
+      const guestPreviewRes = await fetch(`${origin}/api/v1/admin/catalog/products/gallery-browser-product/images/image-0/content`);
+      assert.ok([401, 403].includes(guestPreviewRes.status), "Guest request refused for draft preview");
+
+      // Verify physical disk file is retained for the soft-removed image-1
+      const media1Row = await db.query.media.findFirst({ where: (m, { eq }) => eq(m.id, "media-1") });
+      assert.ok(media1Row, "Media record retained");
+      const diskBytes = await readFile(path.join("storage/private", media1Row.filename));
+      assert.ok(diskBytes.length > 0, "Physical file preserved on disk");
+
+      // Remove primary image-0 -> image-2 becomes primary
+      const removePrimaryPromise = page.waitForResponse(r => r.request().method() === "DELETE" && r.url().includes("/images/image-0"));
+      await page.getByTestId("gallery-remove-image-0").click();
+      await page.getByTestId("gallery-remove-confirm").click();
+      const removePrimaryRes = await removePrimaryPromise;
+      assert.equal(removePrimaryRes.status(), 200);
+      await page.waitForFunction(() => !document.querySelector('section[aria-busy="true"]'));
+      await page.getByTestId("gallery-remove-image-0").waitFor({ state: "detached" });
+
+      // Remove last remaining image-2 -> empty gallery state and focus to upload input
+      const removeLastPromise = page.waitForResponse(r => r.request().method() === "DELETE" && r.url().includes("/images/image-2"));
+      await page.getByTestId("gallery-remove-image-2").click();
+      await page.getByTestId("gallery-remove-confirm").click();
+      const removeLastRes = await removeLastPromise;
+      assert.equal(removeLastRes.status(), 200);
+      await page.waitForFunction(() => !document.querySelector('section[aria-busy="true"]'));
+      await page.getByTestId("gallery-remove-image-2").waitFor({ state: "detached" });
+      await page.getByText("لا توجد صور بعد.").waitFor();
+      assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("data-testid")), "gallery-upload-input");
+
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
       assert.equal(overflow,false, `No horizontal overflow at ${width}`);
       const box = await page.getByTestId("variant-image-v0").boundingBox(); assert.ok(box && box.height>=44);
-      evidence.push({ width, rtl: true, keyboardSelect: true, mapShareClearReload: true, retainedSkuEdit: true, removedMapping: true, dirtyRecovery: true, touch: true, reflow: true });
+      evidence.push({ width, rtl: true, keyboardSelect: true, mapShareClearReload: true, retainedSkuEdit: true, removedMapping: true, dirtyRecovery: true, touch: true, reflow: true, removeCancel: true, removeMappedImage: true, emptyStateFocus: true, mediaPreserved: true });
       await context.close();
     }
     await mkdir(".local", { recursive: true });
