@@ -2,6 +2,10 @@
 
 Date: 2026-10-19. Specification: spec-e04-03-05-reorder-the-gallery-accessibly.md.
 
+## Human acceptance
+
+Accepted by the owner on 2026-10-19 after the BMAD walkthrough, detail pass and suggested manual observations. Explicit decision: "أقبل القصة". Sprint story 4-305 is done. Implementation commit: 18b37b929da23b378aa7bc1f500e7b369da93469.
+
 ## Implemented behavior
 
 - Earlier/later buttons swap adjacent images in local logical array order. Position and primary update immediately in RTL. Save gallery submits that order with ID-keyed descriptions; restoring saved order returns to clean state.

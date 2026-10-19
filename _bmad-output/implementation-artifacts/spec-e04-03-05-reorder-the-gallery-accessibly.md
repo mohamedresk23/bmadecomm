@@ -76,7 +76,7 @@ context:
 
 - Implemented local accessible order and atomic persisted order/alt editing without API/schema/dependency additions. Product saves preserve the independent gallery draft.
 - Completed three review layers; patched announcement identity/repetition, dirty gallery retention, snapshot regression proof and browser verification/cleanup. Final checks: 141 catalog tests, 9 PostgreSQL tests, typecheck, lint, Webpack build and four-width browser verification passed. Default Turbopack remains blocked by existing ACL errors; see verification-e04-03-05.md.
-- Review is complete; sprint state is review pending human acceptance. One agent-context documentation finding is deferred.
+- Review is complete; the owner explicitly accepted the story on 2026-10-19 after the walkthrough. Sprint state is done. One agent-context documentation finding remains deferred.
 
 ## Spec Change Log
 

@@ -29,11 +29,13 @@ development_status:
   # See spec-e04-03-03-upload-draft-image.md, verification-e04-03-03.md, and walkthrough-e04-03-03.md.
   # 04 implemented, hardened against review findings, 106 tests passed, walkthrough reviewed, and accepted by human approval.
   # See spec-e04-03-04-save-alt-text-and-show-publication-readiness.md and walkthrough-e04-03-04.md.
+  # 05 implemented, independently reviewed, verified on PostgreSQL and browser, and accepted by human approval on 2026-10-19.
+  # See spec-e04-03-05-reorder-the-gallery-accessibly.md and verification-e04-03-05.md.
   4-301-secure-and-validate-existing-media-upload: done
   4-302-read-and-privately-preview-a-product-gallery: done
   4-303-upload-a-draft-image-with-safe-retry: done
   4-304-save-alt-text-and-show-publication-readiness: done
-  4-305-reorder-the-gallery-accessibly: review
+  4-305-reorder-the-gallery-accessibly: done
   4-306-map-images-to-variants-without-losing-assignments: backlog
   4-307-remove-gallery-images-while-retaining-history: backlog
   epic-4-retrospective: optional
