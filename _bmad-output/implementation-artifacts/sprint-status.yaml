@@ -9,32 +9,15 @@
 # Never regenerate globally from this scoped input if other epics are later added:
 # include their authoritative inputs too and reconcile dry-run orphan reports first.
 generated: '10-14-2026 14:41'
-last_updated: '10-19-2026'
+last_updated: '10-20-2026'
 project: bmadecomm
 project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
-scope: original-E04-03-product-images
-readiness_gate: CONCERNS
+scope: E04-03-and-E04-04
+readiness_gate: PASS
 development_status:
-  # Scoped grouping not started; does not assert the whole Epic 04 is unstarted.
   epic-4: in-progress
-  # 01 implemented, independently reviewed, and accepted by human approval.
-  # Logo-CSRF prerequisite verified; ten-second actual-stop policy adopted.
-  # Owner authorized E04-03-01 and accepted it; later stories remain backlog.
-  # See spec-e04-03-01-secure-media-preparation.md.
-  # 02 implemented, verified on real PostgreSQL 18.6, walkthrough reviewed, and accepted by human approval.
-  # See spec-e04-03-02-gallery-read-and-private-preview.md, verification-e04-03-02.md, and walkthrough-e04-03-02.md.
-  # 03 implemented, verified on real PostgreSQL 18.6 multi-process concurrency, reviewed and accepted by human approval.
-  # See spec-e04-03-03-upload-draft-image.md, verification-e04-03-03.md, and walkthrough-e04-03-03.md.
-  # 04 implemented, hardened against review findings, 106 tests passed, walkthrough reviewed, and accepted by human approval.
-  # See spec-e04-03-04-save-alt-text-and-show-publication-readiness.md and walkthrough-e04-03-04.md.
-  # 05 implemented, independently reviewed, verified on PostgreSQL and browser, and accepted by human approval on 2026-10-19.
-  # See spec-e04-03-05-reorder-the-gallery-accessibly.md and verification-e04-03-05.md.
-  # 06 implemented, independently reviewed, verified on PostgreSQL and browser, and accepted by human approval on 2026-10-19.
-  # See spec-e04-03-06-map-images-to-variants-without-losing-assignments.md, verification-e04-03-06.md, and walkthrough-e04-03-06.md.
-  # 07 implemented, independently reviewed (all 7 review patches verified), tested on real PostgreSQL & browser, accepted.
-  # See spec-e04-03-07-remove-gallery-images-while-retaining-history.md and verification-e04-03-07.md.
   4-301-secure-and-validate-existing-media-upload: done
   4-302-read-and-privately-preview-a-product-gallery: done
   4-303-upload-a-draft-image-with-safe-retry: done
@@ -42,6 +25,13 @@ development_status:
   4-305-reorder-the-gallery-accessibly: done
   4-306-map-images-to-variants-without-losing-assignments: done
   4-307-remove-gallery-images-while-retaining-history: done
+  # E04-04 Product publish, slug redirects and SEO metadata
+  4-401-schema-migration-for-slug-seo-fields-and-slug-redirects: done
+  4-402-product-slug-validation-generation-and-redirect-chain-management: done
+  4-403-product-publication-readiness-evaluation-service-and-api: ready-for-dev
+  4-404-publish-and-unpublish-actions-with-atomic-state-transitions-and-audit-logging: backlog
+  4-405-public-catalog-slug-resolution-301-redirects-and-draft-isolation: backlog
+  4-406-staff-admin-ui-for-publication-checklist-slug-and-seo-editing: backlog
   epic-4-retrospective: optional
 story_id_map:
   4-301-secure-and-validate-existing-media-upload: E04-03-01
@@ -51,4 +41,10 @@ story_id_map:
   4-305-reorder-the-gallery-accessibly: E04-03-05
   4-306-map-images-to-variants-without-losing-assignments: E04-03-06
   4-307-remove-gallery-images-while-retaining-history: E04-03-07
+  4-401-schema-migration-for-slug-seo-fields-and-slug-redirects: E04-04-01
+  4-402-product-slug-validation-generation-and-redirect-chain-management: E04-04-02
+  4-403-product-publication-readiness-evaluation-service-and-api: E04-04-03
+  4-404-publish-and-unpublish-actions-with-atomic-state-transitions-and-audit-logging: E04-04-04
+  4-405-public-catalog-slug-resolution-301-redirects-and-draft-isolation: E04-04-05
+  4-406-staff-admin-ui-for-publication-checklist-slug-and-seo-editing: E04-04-06
 action_items: []

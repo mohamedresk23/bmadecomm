@@ -5,6 +5,7 @@ import { categories, products, variants, variantAttributes, productCategories, s
 import { ApiError } from "../../../../shared/api/errors";
 import { writeAudit } from "../../../../shared/authz/audit";
 import { combinationKey, createProductSchema, updateProductSchema, CreateProductInput, UpdateProductInput, ProductDto, VariantDto } from "../contracts/product";
+import { assertSlugAvailable, generateUniqueSlug, handleSlugRedirects } from "./slug-service";
 
 // One statement supplies the whole aggregate from one PostgreSQL snapshot.
 async function selectAggregates(db: DbContext, publishedOnly: boolean, id?: string): Promise<ProductDto[]> {
@@ -25,6 +26,7 @@ async function selectAggregates(db: DbContext, publishedOnly: boolean, id?: stri
       ...rest,
       createdAt: product.createdAt.toISOString(),
       updatedAt: product.updatedAt.toISOString(),
+      publishedAt: product.publishedAt ? product.publishedAt.toISOString() : null,
       categoryIds,
       variants: variantRows,
     };
@@ -77,10 +79,19 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
     return await withTransaction(db, async tx => {
       let before: ProductDto | undefined;
       let previousMediaRevision = BigInt(0);
+      let existingStatus = "draft";
+      let existingSlug = "";
+      let existingMetaTitle: string | null = null;
+      let existingMetaDescription: string | null = null;
+
       if (id) {
         const [existing] = await tx.select().from(products).where(eq(products.id, id)).for("update");
         if (!existing) throw ApiError.notFound("Product not found");
-        if (existing.status !== "draft") throw ApiError.conflict("Only drafts can be edited");
+        if (existing.status === "archived") throw ApiError.conflict("Archived products cannot be edited");
+        existingStatus = existing.status;
+        existingSlug = existing.slug;
+        existingMetaTitle = existing.metaTitle;
+        existingMetaDescription = existing.metaDescription;
         previousMediaRevision = existing.mediaRevision;
         before = await getProductById(tx, id);
       }
@@ -99,18 +110,55 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
       parsed.variants.forEach((variant, index) => {
         if (conflicts.some(conflict => conflict.sku === variant.sku && conflict.productId !== id)) throw ApiError.conflict("SKU already in use", [{ field: `variants.${index}.sku`, message: "SKU already in use" }]);
       });
+
       const productId = id ?? `prd_${createId()}`;
+      let finalSlug = existingSlug;
+      let slugChanged = false;
+
+      if (id) {
+        if (parsed.slug && parsed.slug !== existingSlug) {
+          await assertSlugAvailable(tx, parsed.slug, id);
+          finalSlug = parsed.slug;
+          slugChanged = true;
+        }
+      } else {
+        if (parsed.slug) {
+          await assertSlugAvailable(tx, parsed.slug, productId);
+          finalSlug = parsed.slug;
+        } else {
+          finalSlug = await generateUniqueSlug(tx, parsed.name, productId);
+        }
+      }
+
+      if (id && slugChanged) {
+        await handleSlugRedirects(tx, id, existingSlug, finalSlug, existingStatus);
+      }
+
       const mappings = id ? await tx.select().from(variantMedia).where(eq(variantMedia.productId, id)) : [];
       const activeAttachments = id ? await tx.select({ id: productMedia.id }).from(productMedia).where(and(eq(productMedia.productId, id), isNull(productMedia.removedAt))).orderBy(asc(productMedia.id)).for("update") : [];
       const keptMappings = mappings.filter(mapping => parsed.variants.some(variant => variant.id === mapping.variantId) && activeAttachments.some(image => image.id === mapping.productMediaId));
       if (id) {
         await tx.delete(variantMedia).where(eq(variantMedia.productId, id));
-        await tx.update(products).set({ name: parsed.name, description: parsed.description || null, updatedAt: new Date() }).where(eq(products.id, id));
+        await tx.update(products).set({
+          name: parsed.name,
+          description: parsed.description || null,
+          slug: finalSlug,
+          metaTitle: parsed.metaTitle !== undefined ? (parsed.metaTitle || null) : existingMetaTitle,
+          metaDescription: parsed.metaDescription !== undefined ? (parsed.metaDescription || null) : existingMetaDescription,
+          updatedAt: new Date(),
+        }).where(eq(products.id, id));
         // Replacement allows simultaneous SKU/combination swaps while retaining IDs.
         await tx.delete(variants).where(eq(variants.productId, id));
         await tx.delete(productCategories).where(eq(productCategories.productId, id));
       } else {
-        await tx.insert(products).values({ id: productId, name: parsed.name, description: parsed.description || null });
+        await tx.insert(products).values({
+          id: productId,
+          name: parsed.name,
+          description: parsed.description || null,
+          slug: finalSlug,
+          metaTitle: parsed.metaTitle || null,
+          metaDescription: parsed.metaDescription || null,
+        });
       }
       await tx.insert(productCategories).values(parsed.categoryIds.map(categoryId => ({ productId, categoryId })));
       for (const [index, variant] of parsed.variants.entries()) {
@@ -127,6 +175,21 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
       const clearedMappings = mappings.filter(mapping => !keptMappings.includes(mapping));
       if (clearedMappings.length) await tx.update(products).set({ mediaRevision: sql`${products.mediaRevision} + 1` }).where(eq(products.id, productId));
       const after = await getProductById(tx, productId);
+
+      if (id && slugChanged) {
+        await writeAudit(tx, {
+          actor: actorId.startsWith("staff:") ? actorId : `staff:${actorId}`,
+          action: "catalog.product.slug_update",
+          resource: `product:${productId}`,
+          diff: {
+            oldSlug: existingSlug,
+            newSlug: finalSlug,
+            status: existingStatus,
+          },
+          requestId,
+        });
+      }
+
       await writeAudit(tx, {
         actor: actorId.startsWith("staff:") ? actorId : `staff:${actorId}`,
         action: id ? "product.updated" : "product.created", resource: `product:${productId}`,
@@ -140,7 +203,13 @@ async function saveProduct(db: DbContext, input: CreateProductInput | UpdateProd
     if (!detail.code && detail.cause) detail = databaseError(detail.cause);
     if (detail.code === "23505") {
       if (detail.constraint?.includes("combination")) throw ApiError.unprocessableEntity("Duplicate attribute combination", [{ field: "variants", message: "Duplicate attribute combination" }]);
+      if (detail.constraint?.includes("slug")) throw ApiError.conflict("Slug already in use", [{ field: "slug", message: "Slug already in use" }]);
       throw ApiError.conflict("SKU already in use", parsed.variants.map((_, index) => ({ field: `variants.${index}.sku`, message: "SKU already in use" })));
+    }
+    if (detail.code === "23514") {
+      if (detail.constraint?.includes("slug")) throw ApiError.unprocessableEntity("Invalid slug format", [{ field: "slug", message: "Invalid slug format" }]);
+      if (detail.constraint?.includes("meta_title")) throw ApiError.unprocessableEntity("Invalid meta title", [{ field: "metaTitle", message: "Meta title cannot exceed 70 characters" }]);
+      if (detail.constraint?.includes("meta_description")) throw ApiError.unprocessableEntity("Invalid meta description", [{ field: "metaDescription", message: "Meta description cannot exceed 160 characters" }]);
     }
     throw error;
   }
