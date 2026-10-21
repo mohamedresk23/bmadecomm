@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { combinationKey, createProductSchema, updateProductSchema, decimalToMinor, minorToDecimal, generateVariantMatrix, normalizeSlug, SLUG_REGEX } from "./product";
+import { combinationKey, createProductSchema, updateProductSchema, decimalToMinor, minorToDecimal, generateVariantMatrix } from "./product";
 
 const valid = { name: "Shirt", categoryIds: ["cat-1"], variants: [{ sku: " shirt-1 ", priceMinor: "1995", attributes: {} }] };
 

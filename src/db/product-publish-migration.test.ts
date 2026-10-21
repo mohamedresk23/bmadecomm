@@ -54,8 +54,7 @@ async function expectConstraintViolation(fn: () => Promise<unknown>, constraintN
 
 describe("E04-04-01: Product publish, slug, SEO schema migration (0018)", () => {
   let client: PGlite;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let testDb: any;
+  let testDb: ReturnType<typeof drizzle<typeof schema>>;
 
   beforeEach(() => {
     client = new PGlite();
@@ -109,8 +108,7 @@ describe("E04-04-01: Product publish, slug, SEO schema migration (0018)", () => 
     const rows = await testDb.execute(sql`
       SELECT id, name, slug FROM products ORDER BY id ASC
     `);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const productRows = (Array.isArray(rows) ? rows : (rows as any)?.rows ?? []) as { id: string; name: string; slug: string }[];
+    const productRows = (Array.isArray(rows) ? rows : (rows as { rows?: unknown[] })?.rows ?? []) as { id: string; name: string; slug: string }[];
 
     expect(productRows).toHaveLength(6);
     const slugMap = new Map(productRows.map(r => [r.id, r.slug]));

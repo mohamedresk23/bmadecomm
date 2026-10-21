@@ -27,6 +27,15 @@ export function Upload({ csrfToken }: { csrfToken: string }) {
     <input id="media-file" type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading} data-testid="upload-input" onChange={(e) => { const selected = e.target.files?.[0]; e.target.value = ""; if (selected) { setFile(selected); setPreview(URL.createObjectURL(selected)); void upload(selected); } }} />
     {uploading && <p role="status" data-testid="uploading-state">Uploading...</p>}
     {error && <><p role="alert" data-testid="error-state">{error}</p><button type="button" disabled={uploading} onClick={() => { if (file) void upload(file); }}>Retry upload</button></>}
-    {result && <div role="status" data-testid="success-state"><p>Upload successful. Media remains private and pending.</p>{preview && <img src={preview} alt="Uploaded media local preview" className="max-w-xs" data-testid="preview-image" />}<p>ID: {result.id}</p></div>}
+    {result && (
+      <div role="status" data-testid="success-state">
+        <p>Upload successful. Media remains private and pending.</p>
+        {preview && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={preview} alt="Uploaded media local preview" className="max-w-xs" data-testid="preview-image" />
+        )}
+        <p>ID: {result.id}</p>
+      </div>
+    )}
   </div>;
 }
