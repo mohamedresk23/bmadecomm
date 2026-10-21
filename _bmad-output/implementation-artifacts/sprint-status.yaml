@@ -9,7 +9,7 @@
 # Never regenerate globally from this scoped input if other epics are later added:
 # include their authoritative inputs too and reconcile dry-run orphan reports first.
 generated: '10-14-2026 14:41'
-last_updated: '10-20-2026'
+last_updated: '10-21-2026'
 project: bmadecomm
 project_key: NOKEY
 tracking_system: file-system
@@ -28,7 +28,7 @@ development_status:
   # E04-04 Product publish, slug redirects and SEO metadata
   4-401-schema-migration-for-slug-seo-fields-and-slug-redirects: done
   4-402-product-slug-validation-generation-and-redirect-chain-management: done
-  4-403-product-publication-readiness-evaluation-service-and-api: ready-for-dev
+  4-403-product-publication-readiness-evaluation-service-and-api: review
   4-404-publish-and-unpublish-actions-with-atomic-state-transitions-and-audit-logging: backlog
   4-405-public-catalog-slug-resolution-301-redirects-and-draft-isolation: backlog
   4-406-staff-admin-ui-for-publication-checklist-slug-and-seo-editing: backlog

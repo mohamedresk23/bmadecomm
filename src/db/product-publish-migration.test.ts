@@ -41,12 +41,12 @@ async function getProductColumns(client: PGlite): Promise<string[]> {
   return res.rows.map(r => r.column_name);
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function expectConstraintViolation(fn: () => Promise<unknown>, constraintName: string) {
   try {
     await fn();
     expect.unreachable(`Expected constraint violation for ${constraintName}`);
-  } catch (err: any) {
+  } catch (error: unknown) {
+    const err = error as { message?: string; cause?: { message?: string; constraint?: string } };
     const fullError = `${err?.message ?? ""} ${err?.cause?.message ?? ""} ${err?.cause?.constraint ?? ""}`;
     expect(fullError).toContain(constraintName);
   }
