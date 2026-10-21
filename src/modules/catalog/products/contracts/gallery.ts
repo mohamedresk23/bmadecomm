@@ -69,17 +69,45 @@ export const updateGallerySchema = z.object({
       }
     }, "Revision exceeds maximum 64-bit integer"),
   images: z.array(updateGalleryImageItemSchema),
-  variantImages: z.array(variantImageAssignmentSchema).max(0, "Variant image mapping is deferred to E04-03-06").default([]),
-}).strict();
+  variantImages: z.array(variantImageAssignmentSchema).default([]),
+}).strict().superRefine((value, ctx) => {
+  const variants = new Set<string>();
+  const images = new Set(value.images.map(image => image.id));
+  value.images.forEach((image, index) => {
+    if (value.images.findIndex(item => item.id === image.id) !== index) ctx.addIssue({ code: "custom", path: ["images", index, "id"], message: "Duplicate image ID" });
+  });
+  value.variantImages.forEach((mapping, index) => {
+    if (variants.has(mapping.variantId)) ctx.addIssue({ code: "custom", path: ["variantImages", index, "variantId"], message: "Duplicate variant ID" });
+    if (!images.has(mapping.imageId)) ctx.addIssue({ code: "custom", path: ["variantImages", index, "imageId"], message: "Select an active image" });
+    variants.add(mapping.variantId);
+  });
+});
 
 export type UpdateGalleryDto = z.infer<typeof updateGallerySchema>;
 export type UpdateGalleryImageItemDto = z.infer<typeof updateGalleryImageItemSchema>;
+
+export const deleteGalleryImageSchema = z.object({
+  expectedRevision: z
+    .string()
+    .regex(/^(0|[1-9][0-9]*)$/, "Revision must be an integer string")
+    .refine((val) => {
+      try {
+        return BigInt(val) <= BigInt("9223372036854775807");
+      } catch {
+        return false;
+      }
+    }, "Revision exceeds maximum 64-bit integer"),
+}).strict();
+
+export type DeleteGalleryImageDto = z.infer<typeof deleteGalleryImageSchema>;
 
 export const MAX_ACTIVE_IMAGES = 10;
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5,242,880 bytes
 export const MULTIPART_OVERHEAD = 64 * 1024;   // 65,536 bytes
 export const MAX_REQUEST_BODY = MAX_FILE_SIZE + MULTIPART_OVERHEAD; // 5,308,416 bytes
 export const MAX_PUT_BODY = 64 * 1024; // 65,536 bytes (64 KiB)
+export const MAX_DELETE_BODY = 1024; // 1,024 bytes (1 KiB)
 export const IDEMPOTENCY_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 
 

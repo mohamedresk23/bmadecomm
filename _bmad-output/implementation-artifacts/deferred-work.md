@@ -61,3 +61,8 @@
 - source_spec: `spec-e04-03-05-reorder-the-gallery-accessibly.md`
   summary: Restore explicit approved media-processing and legacy-route security decisions or authoritative references in the compiled Epic 4 agent context.
   evidence: Context refresh removed explicit 4096-dimension/8-million-pixel/static-only/ten-second termination and owner-only legacy-route wording. Current implementation contract remains loaded and controls are unchanged; build review routes agent-context changes to deferred work.
+
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-07-remove-gallery-images-while-retaining-history.md`
+  summary: Align canonical lock order in updateProduct (product-service.ts) to lock product row FOR UPDATE before active attachments.
+  evidence: In product-service.ts line 104, updateProduct locks product_media rows FOR UPDATE before updating products. Locking products FOR UPDATE first establishes uniform canonical lock hierarchy across all product and gallery transactions.

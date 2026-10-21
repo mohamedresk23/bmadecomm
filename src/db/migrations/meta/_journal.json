@@ -120,6 +120,20 @@
       "when": 1791700000000,
       "tag": "0016_upload_rate_limit",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791800000000,
+      "tag": "0017_variant_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791900000000,
+      "tag": "0018_product_publish_slug_seo",
+      "breakpoints": true
     }
   ]
 }

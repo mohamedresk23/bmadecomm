@@ -56,6 +56,80 @@ it("loads gallery after first save, passes CSRF to upload, applies gallery callb
 });
 
 describe("ProductManager with real API handlers and migrated database", () => {
+  it("clears the previous product gallery on a failed switch and adopts a successful retry without dirty state", async () => {
+    const transport = await connect();
+    const secondResponse = await POST(fixture.request("POST", { name: "Second", categoryIds: [fixture.categoryId], variants: [{ sku: "SECOND", priceMinor: "1", attributes: {} }] }, undefined, { "Idempotency-Key": crypto.randomUUID() }));
+    const secondId = (await secondResponse.json()).product.id;
+    fixture.productIds.push(secondId);
+    render(<ProductManager />); await ready(); enterSimple("FIRST-SWITCH");
+    fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+    await waitFor(() => expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(false));
+    const firstId = fixture.productIds[1];
+    for (const [productId, id] of [[firstId, "switch-first"], [secondId, "switch-second"]]) {
+      await db.insert(media).values({ id, filename: `${id}.png`, mimeType: "image/png", size: 10, status: "pending" });
+      await db.insert(productMedia).values({ id, productId, mediaId: id, sortOrder: 0, altText: id });
+    }
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
+      await screen.findByTestId("gallery-image-switch-first");
+      const normal = transport.getMockImplementation()!;
+      let fail = true;
+      transport.mockImplementation((url, options) => url === `/api/v1/admin/catalog/products/${secondId}/images` && fail ? Promise.reject(new Error("Switch failed")) : normal(url, options));
+      fireEvent.click(screen.getByRole("button", { name: "تعديل Second" }));
+      await screen.findByText("تعذر تحميل صور المنتج. أعد المحاولة.");
+      expect(screen.queryByTestId("gallery-image-switch-first")).toBeNull();
+      expect(screen.queryByRole("combobox")).toBeNull();
+      expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+      fail = false;
+      fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+      await screen.findByTestId("gallery-image-switch-second");
+      expect(screen.queryByTestId("gallery-image-switch-first")).toBeNull();
+      expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+      expect((screen.getByRole("combobox").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false);
+    } finally {
+      for (const id of ["switch-first", "switch-second"]) {
+        await db.delete(productMedia).where(eq(productMedia.id, id));
+        await db.delete(media).where(eq(media.id, id));
+      }
+    }
+  });
+  it.each([["PUT", true], ["PUT", false], ["POST", true], ["POST", false]] as const)("blocks product actions during deferred gallery %s (success=%s) and restores them", async (method, success) => {
+    const transport = await connect(); render(<ProductManager />); await ready(); enterSimple(`BUSY-${method}-${success}`);
+    const form = screen.getByLabelText("SKU 1").closest("form")!;
+    fireEvent.submit(form);
+    await waitFor(() => expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(false));
+    const productId = fixture.productIds[0], imageId = `busy-${method}-${success}`;
+    await db.insert(media).values({ id: imageId, filename: `${imageId}.png`, mimeType: "image/png", size: 10, status: "pending" });
+    await db.insert(productMedia).values({ id: imageId, productId, mediaId: imageId, sortOrder: 0, altText: "Saved" });
+    try {
+      fireEvent.click(screen.getByRole("button", { name: "تعديل قميص" }));
+      await screen.findByTestId(`gallery-alt-input-${imageId}`);
+      const normal = transport.getMockImplementation()!;
+      const snapshot = await (await normal(`/api/v1/admin/catalog/products/${productId}/images`)).json();
+      let complete!: (response: Response) => void;
+      const pending = new Promise<Response>(resolve => { complete = resolve; });
+      transport.mockImplementation((url, options) => url.endsWith("/images") && options?.method === method ? pending : normal(url, options));
+      if (method === "PUT") {
+        fireEvent.change(screen.getByTestId(`gallery-alt-input-${imageId}`), { target: { value: "Pending" } });
+        fireEvent.click(screen.getByTestId("gallery-save-button"));
+      } else {
+        fireEvent.change(screen.getByTestId("gallery-upload-input"), { target: { files: [new File(["image"], "image.png", { type: "image/png" })] } });
+        fireEvent.click(screen.getByTestId("gallery-upload-button"));
+      }
+      const productActions = () => [screen.getByRole("button", { name: "حفظ المسودة" }), screen.getByRole("button", { name: "منتج جديد" }), screen.getByRole("button", { name: "تعديل قميص" })] as HTMLButtonElement[];
+      await waitFor(() => expect(productActions().every(button => button.disabled)).toBe(true));
+      const productWrites = () => transport.mock.calls.filter(([url, options]) => !url.endsWith("/images") && ["PUT", "POST"].includes(options?.method ?? "")).length;
+      const before = productWrites();
+      fireEvent.submit(form);
+      expect(productWrites()).toBe(before);
+      complete(Response.json(success ? snapshot : { error: { message: "Gallery failed" } }, { status: success ? 200 : 503 }));
+      await waitFor(() => expect(productActions().every(button => !button.disabled)).toBe(true));
+      expect(productWrites()).toBe(before);
+    } finally {
+      await db.delete(productMedia).where(eq(productMedia.id, imageId));
+      await db.delete(media).where(eq(media.id, imageId));
+    }
+  });
   it("retains local gallery order and descriptions when saving unrelated product fields", async () => {
     const transport = await connect(); render(<ProductManager />); await ready(); enterSimple("GALLERY-PRODUCT-SAVE");
     fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
@@ -76,7 +150,7 @@ describe("ProductManager with real API handlers and migrated database", () => {
       fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
       await waitFor(() => expect((screen.getByRole("button", { name: "حفظ المسودة" }) as HTMLButtonElement).disabled).toBe(false));
       expect((await getProductById(db, productId)).description).toBe("Saved unrelated description");
-      expect(transport.mock.calls.filter(([url]) => url.endsWith("/images"))).toHaveLength(before);
+      expect(transport.mock.calls.filter(([url]) => url.endsWith("/images"))).toHaveLength(before + 1);
       expect(screen.getAllByTestId(/^gallery-image-/).map(node => node.getAttribute("data-testid"))).toEqual([`gallery-image-${ids[1]}`, `gallery-image-${ids[0]}`]);
       expect((screen.getByTestId(`gallery-alt-input-${ids[0]}`) as HTMLInputElement).value).toBe("Unsaved gallery description");
       expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();

@@ -38,6 +38,109 @@ const mockGallery: GalleryDto = {
   ],
 };
 
+describe("persisted variant image selectors", () => {
+  const variants: { id: string; sku: string; attributes: Record<string, string> }[] = [{ id: "v1", sku: "RED-S", attributes: { color: "red", size: "s" } }, { id: "v2", sku: "BLUE-M", attributes: { color: "blue" } }];
+  const props = { productId: "prd_123", variants, gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };
+  it("ignores another product snapshot across a failed switch and accepts the matching refresh cleanly", () => {
+    const { rerender } = render(<ProductGallery {...props} />);
+    rerender(<ProductGallery {...props} productId="other" gallery={mockGallery} error="Failed switch" />);
+    expect(screen.queryByTestId("gallery-image-pim_1")).toBeNull();
+    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    rerender(<ProductGallery {...props} productId="other" gallery={{ ...mockGallery, productId: "other" }} />);
+    expect(screen.getByTestId("gallery-image-pim_1")).toBeTruthy();
+    expect((screen.getByTestId("variant-image-v1").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(false);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+  });
+  it("offers explicit recovery when a locally mapped variant is removed without changing revision", () => {
+    const retry = vi.fn();
+    const { rerender } = render(<ProductGallery {...props} onRetry={retry} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Keep pending description" } });
+    rerender(<ProductGallery {...props} variants={[variants[1]]} gallery={{ ...mockGallery }} onRetry={retry} />);
+    expect(screen.queryByTestId("variant-image-v1")).toBeNull();
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Keep pending description");
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("gallery-reload-button"));
+    expect(confirm.mock.calls[0][0]).toContain("تعيينات صور المتغيرات");
+    expect(retry).toHaveBeenCalledOnce();
+    rerender(<ProductGallery {...props} variants={[variants[1]]} gallery={{ ...mockGallery }} onRetry={retry} />);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    expect(screen.queryByTestId("gallery-reload-button")).toBeNull();
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("");
+  });
+  it("associates indexed mapping errors with the submitted variant and summarizes unmatched errors", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 422, json: async () => ({ error: { message: "Validation failed", details: [{ field: "variantImages.0.imageId", message: "Choose an active image" }, { field: "variantImages.99", message: "Unmatched mapping issue" }] } }) }));
+    render(<ProductGallery {...props} />);
+    expect(screen.getAllByRole("option", { name: /الصورة 1 \(بدون وصف\)/ })).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("variant-image-v2"), { target: { value: "pim_1" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await screen.findByTestId("gallery-save-error");
+    const select = screen.getByTestId("variant-image-v2");
+    expect(select.getAttribute("aria-invalid")).toBe("true");
+    expect(document.getElementById(select.getAttribute("aria-describedby")!)?.textContent).toBe("Choose an active image");
+    expect(screen.getByTestId("variant-image-v1").getAttribute("aria-invalid")).toBe("false");
+    expect(screen.getByText("Unmatched mapping issue")).toBeTruthy();
+  });
+  it("maps and shares persisted IDs, includes mapping changes in dirty/save, and clears with fallback", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ gallery: { ...mockGallery, revision: "1", variantImages: variants.map(variant => ({ variantId: variant.id, imageId: "pim_2" })) } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    const update = vi.fn();
+    render(<ProductGallery {...props} onGalleryUpdate={update} />);
+    expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("variant-image-v2"), { target: { value: "pim_2" } });
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await waitFor(() => expect(update).toHaveBeenCalledOnce());
+    const payload = JSON.parse(fetchMock.mock.calls[0][1].body);
+    expect(payload.variantImages).toEqual(variants.map(variant => ({ variantId: variant.id, imageId: "pim_2" })));
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "" } });
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("");
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+  it("keeps local order, alt and mapping with the original revision through null/failed/stale refresh", async () => {
+    const retry = vi.fn();
+    const { rerender } = render(<ProductGallery {...props} onRetry={retry} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Keep description" } });
+    fireEvent.click(screen.getByTestId("gallery-move-earlier-pim_2"));
+    rerender(<ProductGallery {...props} gallery={null} loading={true} onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={null} error="Failed refresh" onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "2" }} onRetry={retry} />);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Keep description");
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("pim_2");
+    expect(screen.getAllByTestId(/^gallery-image-/)[0].getAttribute("data-testid")).toBe("gallery-image-pim_2");
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByTestId("gallery-reload-button"));
+    expect(retry).toHaveBeenCalledOnce();
+    rerender(<ProductGallery {...props} gallery={null} error="Still failed" onRetry={retry} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "2" }} onRetry={retry} />);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe(mockGallery.images[0].altText);
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("");
+  });
+  it("announces cleared mappings after a clean product refresh and disables conflicting writes", () => {
+    const mapped = { ...mockGallery, variantImages: [{ variantId: "v1", imageId: "pim_2" }] };
+    const { rerender } = render(<ProductGallery {...props} gallery={mapped} />);
+    rerender(<ProductGallery {...props} gallery={{ ...mockGallery, revision: "1" }} productSaving />);
+    expect(screen.getByTestId("gallery-save-success").textContent).toContain("تم مسح 1");
+    expect((screen.getByTestId("variant-image-v1").closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+  });
+  it.each([401, 422, 503])("retains entered mapping and original revision after HTTP %s", async status => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status, json: async () => ({ error: { message: "Save failed", details: [{ field: "variantImages.0", message: "Review mapping" }] } }) });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<ProductGallery {...props} />);
+    fireEvent.change(screen.getByTestId("variant-image-v1"), { target: { value: "pim_2" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    await waitFor(() => expect(screen.getByTestId("gallery-save-error")).toBeTruthy());
+    expect((screen.getByTestId("variant-image-v1") as HTMLSelectElement).value).toBe("pim_2");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedRevision).toBe(mockGallery.revision);
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+});
+
 describe("ProductGallery UI component", () => {
   it("renders empty state placeholder for unsaved product", () => {
     render(<ProductGallery gallery={null} loading={false} error={null} onRetry={() => {}} />);
@@ -722,3 +825,244 @@ it("announces moved identity and a fresh sequence even for repeated destinations
   expect(first).toMatch(/1:/); expect(second).toMatch(/2:/); expect(third).toMatch(/3:/);
   expect(new Set([first,second,third]).size).toBe(3);
 });
+
+describe("ProductGallery image removal UI", () => {
+  it("renders remove button on each image card and opens accessible confirmation dialog", () => {
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+    const removeBtn1 = screen.getByTestId("gallery-remove-pim_1");
+    const removeBtn2 = screen.getByTestId("gallery-remove-pim_2");
+    expect(removeBtn1).toBeTruthy();
+    expect(removeBtn2).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    fireEvent.click(removeBtn1);
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+    expect(dialog.getAttribute("aria-labelledby")).toBe("gallery-remove-dialog-title");
+    expect(screen.getByText("تأكيد إزالة الصورة")).toBeTruthy();
+    expect(screen.getByText(/فك ارتباط الصورة من أي متغيرات مرتبطة بها/)).toBeTruthy();
+    expect(screen.getByText(/لن يتم حذف ملف الصورة الأصلي/)).toBeTruthy();
+  });
+
+  it("cancels removal when clicking 'إلغاء' without sending request and restores focus", () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+
+    const removeBtn = screen.getByTestId("gallery-remove-pim_1");
+    removeBtn.focus();
+    fireEvent.click(removeBtn);
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+
+    const cancelBtn = screen.getByTestId("gallery-remove-cancel");
+    fireEvent.click(cancelBtn);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(removeBtn);
+  });
+
+  it("warns about unsaved edits in confirmation dialog when gallery is dirty", () => {
+    render(<ProductGallery productId="prd_123" gallery={mockGallery} loading={false} error={null} onRetry={() => {}} />);
+
+    const altInput = screen.getByTestId("gallery-alt-input-pim_1");
+    fireEvent.change(altInput, { target: { value: "Dirty alt edit" } });
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_2"));
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText(/لديك تعديلات غير محفوظة في المعرض/)).toBeTruthy();
+  });
+
+  it("sends DELETE request with expectedRevision and CSRF token upon confirmation", async () => {
+    const onGalleryUpdate = vi.fn();
+    const updatedGallery: GalleryDto = {
+      ...mockGallery,
+      revision: "2",
+      primaryImageId: "pim_2",
+      images: [mockGallery.images[1]],
+      variantImages: [],
+      publicationIssues: [],
+    };
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, gallery: updatedGallery }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        csrf="csrf_token_del"
+        onGalleryUpdate={onGalleryUpdate}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    const confirmBtn = screen.getByTestId("gallery-remove-confirm");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalledOnce();
+    });
+
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("/api/v1/admin/catalog/products/prd_123/images/pim_1");
+    expect(init?.method).toBe("DELETE");
+    expect((init?.headers as Record<string, string>)["X-CSRF-Token"]).toBe("csrf_token_del");
+    expect((init?.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(init?.body as string)).toEqual({ expectedRevision: "1" });
+
+    await waitFor(() => {
+      expect(onGalleryUpdate).toHaveBeenCalledWith(updatedGallery);
+      expect(document.activeElement).toBe(screen.getByTestId("gallery-remove-pim_2"));
+    });
+
+    // Check announcement
+    expect(screen.getByTestId("gallery-move-status").textContent).toContain("تمت إزالة الصورة");
+  });
+
+  it("dismisses removal confirmation dialog and restores focus when Escape key is pressed", () => {
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    const removeBtn = screen.getByTestId("gallery-remove-pim_1");
+    fireEvent.click(removeBtn);
+    const dialog = screen.getByTestId("gallery-remove-dialog");
+    expect(dialog).toBeTruthy();
+
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByTestId("gallery-remove-dialog")).toBeNull();
+    expect(document.activeElement).toBe(removeBtn);
+  });
+
+  it("displays empty gallery state and focuses upload input when the last image is removed", async () => {
+    const singleImageGallery: GalleryDto = {
+      ...mockGallery,
+      images: [mockGallery.images[0]],
+      primaryImageId: "pim_1",
+    };
+    const emptyGallery: GalleryDto = {
+      ...mockGallery,
+      revision: "2",
+      images: [],
+      primaryImageId: null,
+      variantImages: [],
+      publicationIssues: [],
+    };
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ success: true, gallery: emptyGallery }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={singleImageGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    await waitFor(() => {
+      expect(screen.getByText("لا توجد صور بعد.")).toBeTruthy();
+    });
+
+    const uploadInput = screen.getByTestId("gallery-upload-input");
+    expect(document.activeElement).toBe(uploadInput);
+  });
+
+  it("preserves dirty local edits and displays conflict alert when removal fails with 409 STALE_GALLERY", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: { code: "STALE_GALLERY", message: "Stale revision" } }),
+        { status: 409, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+      />
+    );
+
+    const altInput = screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement;
+    fireEvent.change(altInput, { target: { value: "Dirty uncommitted alt" } });
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_2"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("gallery-save-error")).toBeTruthy();
+    });
+
+    expect(screen.getByTestId("gallery-reload-button")).toBeTruthy();
+    // Local dirty edits preserved
+    expect(altInput.value).toBe("Dirty uncommitted alt");
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  });
+
+  it("coordinates busy state and disables controls while removal request is pending", async () => {
+    const onBusyChange = vi.fn();
+    let resolveDelete!: (res: Response) => void;
+    vi.spyOn(globalThis, "fetch").mockImplementationOnce(
+      () => new Promise((resolve) => { resolveDelete = resolve; })
+    );
+
+    render(
+      <ProductGallery
+        productId="prd_123"
+        gallery={mockGallery}
+        loading={false}
+        error={null}
+        onRetry={() => {}}
+        onBusyChange={onBusyChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+
+    // In-flight
+    expect(onBusyChange).toHaveBeenCalledWith(true);
+
+    const uploadInput = screen.getByTestId("gallery-upload-input") as HTMLInputElement;
+    expect(uploadInput.disabled).toBe(true);
+
+    resolveDelete(
+      new Response(JSON.stringify({ success: true, gallery: { ...mockGallery, revision: "2" } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await waitFor(() => {
+      expect(onBusyChange).toHaveBeenLastCalledWith(false);
+    });
+  });
+});
+

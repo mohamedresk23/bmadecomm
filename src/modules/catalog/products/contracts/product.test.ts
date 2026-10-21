@@ -1,14 +1,98 @@
 import { describe, expect, it } from "vitest";
-import { combinationKey, createProductSchema, updateProductSchema, decimalToMinor, minorToDecimal, generateVariantMatrix } from "./product";
+import { combinationKey, createProductSchema, updateProductSchema, decimalToMinor, minorToDecimal, generateVariantMatrix, normalizeSlug, SLUG_REGEX } from "./product";
+
 const valid = { name: "Shirt", categoryIds: ["cat-1"], variants: [{ sku: " shirt-1 ", priceMinor: "1995", attributes: {} }] };
+
 describe("product contracts", () => {
   it("normalizes SKUs and rejects untrusted lifecycle, stock and currency claims", () => {
     expect(createProductSchema.parse(valid).variants[0].sku).toBe("SHIRT-1");
     expect(createProductSchema.parse({ ...valid, variants: [{ sku: "SIMPLE", priceMinor: "0" }] }).variants[0].attributes).toEqual({});
-    for (const key of ["status", "currency", "currencyScale", "stock", "cost", "slug"]) expect(createProductSchema.safeParse({ ...valid, [key]: "draft" }).success).toBe(false);
+    for (const key of ["status", "currency", "currencyScale", "stock", "cost", "publishedAt"]) expect(createProductSchema.safeParse({ ...valid, [key]: "draft" }).success).toBe(false);
     expect(createProductSchema.safeParse({ ...valid, variants: [{ ...valid.variants[0], id: "forged" }] }).success).toBe(false);
     expect(updateProductSchema.safeParse({ ...valid, variants: [{ ...valid.variants[0], id: "retained" }] }).success).toBe(true);
   });
+
+  it("validates and normalizes slug format, rejecting invalid formats and length violations", () => {
+    // Normalization & valid slugs
+    const parsed1 = createProductSchema.parse({ ...valid, slug: "  Summer-Linen-Shirt  " });
+    expect(parsed1.slug).toBe("summer-linen-shirt");
+
+    const parsed2 = createProductSchema.parse({ ...valid, slug: "custom-linen-top" });
+    expect(parsed2.slug).toBe("custom-linen-top");
+
+    expect(createProductSchema.parse({ ...valid, slug: "product-1" }).slug).toBe("product-1");
+    expect(createProductSchema.parse({ ...valid, slug: "a" }).slug).toBe("a");
+
+    // Slug length bounds: 255 characters allowed
+    const maxSlug = "a".repeat(255);
+    expect(createProductSchema.parse({ ...valid, slug: maxSlug }).slug).toBe(maxSlug);
+
+    // Slug length bounds: > 255 rejected
+    const tooLongSlug = "a".repeat(256);
+    const tooLongRes = createProductSchema.safeParse({ ...valid, slug: tooLongSlug });
+    expect(tooLongRes.success).toBe(false);
+    if (!tooLongRes.success) {
+      expect(tooLongRes.error.issues.some(issue => issue.path.includes("slug"))).toBe(true);
+    }
+
+    // Invalid format regex: ^[a-z0-9]+(-[a-z0-9]+)*$
+    const invalidSlugs = [
+      "Bad_Slug!",      // underscore and exclamation
+      "-leading",       // leading hyphen
+      "trailing-",      // trailing hyphen
+      "double--hyphen", // consecutive hyphens
+      "with space",     // internal space
+      "invalid@char",   // symbol
+      "",               // empty string
+      "   ",            // whitespace-only
+    ];
+
+    for (const badSlug of invalidSlugs) {
+      const res = createProductSchema.safeParse({ ...valid, slug: badSlug });
+      expect(res.success, `Expected slug "${badSlug}" to be rejected`).toBe(false);
+      if (!res.success) {
+        expect(res.error.issues.some(issue => issue.path.includes("slug"))).toBe(true);
+      }
+    }
+
+    // Slug is optional on create and update
+    expect(createProductSchema.safeParse(valid).success).toBe(true);
+    expect(updateProductSchema.safeParse(valid).success).toBe(true);
+    expect(updateProductSchema.safeParse({ ...valid, slug: "updated-slug" }).success).toBe(true);
+    expect(updateProductSchema.safeParse({ ...valid, slug: "Bad_Slug!" }).success).toBe(false);
+  });
+
+  it("validates SEO metaTitle and metaDescription lengths and content", () => {
+    // Valid title & description
+    const withSeo = createProductSchema.parse({
+      ...valid,
+      metaTitle: "  Summer Shirt - Best Quality  ",
+      metaDescription: "  Buy our 100% linen summer shirt with premium quality.  ",
+    });
+    expect(withSeo.metaTitle).toBe("Summer Shirt - Best Quality");
+    expect(withSeo.metaDescription).toBe("Buy our 100% linen summer shirt with premium quality.");
+
+    // Nullable and optional
+    expect(createProductSchema.parse({ ...valid, metaTitle: null, metaDescription: null }).metaTitle).toBeNull();
+    expect(createProductSchema.parse({ ...valid, metaTitle: undefined, metaDescription: undefined }).metaTitle).toBeUndefined();
+
+    // Meta title max 70 chars
+    expect(createProductSchema.safeParse({ ...valid, metaTitle: "a".repeat(70) }).success).toBe(true);
+    const badTitle = createProductSchema.safeParse({ ...valid, metaTitle: "a".repeat(71) });
+    expect(badTitle.success).toBe(false);
+    if (!badTitle.success) expect(badTitle.error.issues.some(i => i.path.includes("metaTitle"))).toBe(true);
+
+    // Meta description max 160 chars
+    expect(createProductSchema.safeParse({ ...valid, metaDescription: "a".repeat(160) }).success).toBe(true);
+    const badDesc = createProductSchema.safeParse({ ...valid, metaDescription: "a".repeat(161) });
+    expect(badDesc.success).toBe(false);
+    if (!badDesc.success) expect(badDesc.error.issues.some(i => i.path.includes("metaDescription"))).toBe(true);
+
+    // Controls rejected
+    expect(createProductSchema.safeParse({ ...valid, metaTitle: "bad\u0000title" }).success).toBe(false);
+    expect(createProductSchema.safeParse({ ...valid, metaDescription: "bad\u0000desc" }).success).toBe(false);
+  });
+
   it.each(["-1", "1.5", "x", "", "01", "1e2", "9223372036854775808"])("rejects malformed or overflowing money %s without throwing", priceMinor => {
     expect(createProductSchema.safeParse({ ...valid, variants: [{ ...valid.variants[0], priceMinor, comparePriceMinor: "1" }] }).success).toBe(false);
   });

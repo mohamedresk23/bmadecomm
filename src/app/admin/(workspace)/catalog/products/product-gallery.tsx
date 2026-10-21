@@ -5,6 +5,9 @@ import { GalleryDto, GalleryImageDto } from "../../../../../modules/catalog/prod
 
 interface ProductGalleryProps {
   productId?: string;
+  variants?: { id: string; sku: string; attributes: Record<string, string> }[];
+  productSaving?: boolean;
+  onBusyChange?: (busy: boolean) => void;
   gallery: GalleryDto | null;
   loading: boolean;
   error: string | null;
@@ -21,8 +24,11 @@ export function ProductGallery(props: ProductGalleryProps) {
 
 function ProductGalleryState({
   productId,
-  gallery,
-  loading,
+  gallery: incomingGallery,
+  variants = [],
+  productSaving = false,
+  onBusyChange,
+  loading: incomingLoading,
   error,
   onRetry,
   csrf,
@@ -30,6 +36,14 @@ function ProductGalleryState({
   onGalleryUpdate,
   onDirtyChange,
 }: ProductGalleryProps) {
+  const loading = incomingLoading || productSaving;
+  const [gallery, setGallery] = useState(incomingGallery?.productId === productId ? incomingGallery : null);
+  const [localMappings, setLocalMappings] = useState<Record<string, string> | null>(null);
+  const mappings = localMappings ?? Object.fromEntries((gallery?.variantImages ?? []).map(item => [item.variantId, item.imageId]));
+  const [discardOnRefresh, setDiscardOnRefresh] = useState(false);
+  const [seenGallery, setSeenGallery] = useState(incomingGallery);
+  const variantIdentity = JSON.stringify(variants.map(variant => variant.id).sort());
+  const [seenVariants, setSeenVariants] = useState(variantIdentity);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [reloadKeys, setReloadKeys] = useState<Record<string, number>>({});
   const [uploading, setUploading] = useState(false);
@@ -45,7 +59,9 @@ function ProductGalleryState({
   const [moveAnnouncement, setMoveAnnouncement] = useState("");
   const announcementSequence = useRef(0);
   const moveButtons = useRef<Record<string, HTMLButtonElement | null>>({});
+  const removeButtons = useRef<Record<string, HTMLButtonElement | null>>({});
   const pendingFocus = useRef<string | null>(null);
+  const pendingFocusAfterRemove = useRef<string | null>(null);
   const orderedImages = localOrder
     ? localOrder.flatMap(id => gallery?.images.find(image => image.id === id) ?? [])
     : gallery?.images ?? [];
@@ -54,7 +70,19 @@ function ProductGalleryState({
       moveButtons.current[pendingFocus.current]?.focus();
       pendingFocus.current = null;
     }
+    if (pendingFocusAfterRemove.current) {
+      if (pendingFocusAfterRemove.current === "upload-input") {
+        fileInputRef.current?.focus();
+      } else {
+        removeButtons.current[pendingFocusAfterRemove.current]?.focus();
+      }
+      pendingFocusAfterRemove.current = null;
+    }
   });
+
+  // Image removal state
+  const [removingImageId, setRemovingImageId] = useState<string | null>(null);
+  const [confirmRemoveImageId, setConfirmRemoveImageId] = useState<string | null>(null);
 
   // Alt text editing and dirty tracking
   const [localAltTexts, setLocalAltTexts] = useState<Record<string, string>>({});
@@ -65,7 +93,8 @@ function ProductGalleryState({
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const orderDirty = orderedImages.some((image, index) => image.id !== gallery?.images[index]?.id);
-  const isDirty = orderDirty || ((gallery?.images.some((img) => {
+  const mappingDirty = JSON.stringify(Object.entries(mappings).filter(([,image]) => image).sort()) !== JSON.stringify((gallery?.variantImages ?? []).map(item => [item.variantId, item.imageId]).sort());
+  const isDirty = mappingDirty || orderDirty || ((gallery?.images.some((img) => {
     const local = localAltTexts[img.id];
     return local !== undefined && local.trim() !== img.altText.trim();
   })) ?? false);
@@ -77,14 +106,31 @@ function ProductGalleryState({
     };
   }, [isDirty, onDirtyChange]);
 
-  const [prevRevision, setPrevRevision] = useState(gallery?.revision);
-  if (gallery?.revision !== prevRevision) {
-    setPrevRevision(gallery?.revision);
-    setSaveError(null);
-    setIsStale(false);
-    setLocalOrder(null);
-    setLocalAltTexts({});
-    setFieldErrors({});
+  useEffect(() => {
+    onBusyChange?.(saving || uploading || !!removingImageId);
+    return () => onBusyChange?.(false);
+  }, [saving, uploading, removingImageId, onBusyChange]);
+
+
+  // Keep the reviewed snapshot until a successful explicit discard or save.
+  // A null/failed refresh must never erase local work.
+  if (incomingGallery?.productId === productId && incomingGallery && (incomingGallery !== seenGallery || variantIdentity !== seenVariants)) {
+    setSeenGallery(incomingGallery);
+    setSeenVariants(variantIdentity);
+    if (isDirty && !discardOnRefresh) {
+      if (incomingGallery.revision !== gallery?.revision || Object.entries(mappings).some(([variantId, imageId]) => imageId && !variants.some(variant => variant.id === variantId))) {
+        setIsStale(true);
+        const cleared = (gallery?.variantImages ?? []).filter(mapping => !incomingGallery.variantImages.some(item => item.variantId === mapping.variantId)).length;
+        setSaveError(`تغيرت تعيينات الصور.${cleared ? ` تم مسح ${cleared} من تعيينات المتغيرات؛ تستخدم الصورة الرئيسية الآن.` : ""} احتفظنا بتعديلاتك؛ أعد التحميل للتجاهل والمراجعة.`);
+      }
+    } else {
+      const cleared = (gallery?.variantImages ?? []).filter(mapping => !incomingGallery.variantImages.some(item => item.variantId === mapping.variantId));
+      setGallery(incomingGallery);
+      setLocalOrder(null); setLocalAltTexts({}); setLocalMappings(null);
+      setSaveError(null); setIsStale(false); setFieldErrors({});
+      if (cleared.length) setSaveSuccess(`تم مسح ${cleared.length} من تعيينات صور المتغيرات. تستخدم الصورة الرئيسية الآن.`);
+      setDiscardOnRefresh(false);
+    }
   }
 
   useEffect(() => {
@@ -174,6 +220,8 @@ function ProductGalleryState({
 
       const data = await res.json();
       if (controller.signal.aborted) return;
+      setGallery(data.gallery);
+      setLocalMappings(null);
       setLocalOrder(null);
       setLocalAltTexts({});
       setSelectedFile(null);
@@ -204,7 +252,7 @@ function ProductGalleryState({
     e.preventDefault();
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
@@ -213,7 +261,7 @@ function ProductGalleryState({
   const handleRetryUpload = async () => {
     if (!selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
-      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
+      const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
     }
     await executeUpload(selectedFile, idempotencyKey);
@@ -227,6 +275,7 @@ function ProductGalleryState({
     setIsStale(false);
     setFieldErrors({});
 
+    const submittedMappings = Object.entries(mappings).filter(([, imageId]) => imageId).map(([variantId, imageId]) => ({ variantId, imageId }));
     const imagesPayload = orderedImages.map((img) => ({
       id: img.id,
       altText: localAltTexts[img.id] !== undefined ? localAltTexts[img.id] : img.altText,
@@ -246,7 +295,7 @@ function ProductGalleryState({
         body: JSON.stringify({
           expectedRevision: gallery.revision,
           images: imagesPayload,
-          variantImages: [],
+          variantImages: submittedMappings,
         }),
       });
 
@@ -263,7 +312,11 @@ function ProductGalleryState({
           if (data?.error?.details && Array.isArray(data.error.details)) {
             const errors: Record<string, string> = {};
             for (const d of data.error.details) {
-              if (d.field) errors[d.field] = d.message;
+              if (d.field) {
+                const mapping = /^variantImages\.(\d+)(?:\.|$)/.exec(d.field);
+                const variantId = mapping ? submittedMappings[Number(mapping[1])]?.variantId : undefined;
+                errors[variantId ? `variantImages.${variantId}` : d.field] = d.message;
+              }
             }
             setFieldErrors(errors);
           }
@@ -279,6 +332,8 @@ function ProductGalleryState({
       }
 
       const data = await res.json();
+      setGallery(data.gallery);
+      setLocalMappings(null);
       setLocalAltTexts({});
       setLocalOrder(null);
       setFieldErrors({});
@@ -301,6 +356,100 @@ function ProductGalleryState({
     }
   };
 
+  const handleExecuteRemove = async (imageIdToRemove: string | null) => {
+    if (!productId || !gallery || !imageIdToRemove || !!removingImageId || saving || uploading || loading || !!error || gallery.productId !== productId) return;
+
+    setRemovingImageId(imageIdToRemove);
+    setSaveError(null);
+    setSaveSuccess(null);
+    setIsStale(false);
+
+    const removedIndex = orderedImages.findIndex((img) => img.id === imageIdToRemove);
+    const remainingAfter = orderedImages.filter((img) => img.id !== imageIdToRemove);
+    let nextFocusId: string | null = null;
+    if (remainingAfter.length === 0) {
+      nextFocusId = "upload-input";
+    } else {
+      const nextIndex = Math.min(removedIndex, remainingAfter.length - 1);
+      nextFocusId = remainingAfter[nextIndex]?.id ?? null;
+    }
+
+    const wasMapped = (gallery.variantImages ?? []).some((m) => m.imageId === imageIdToRemove);
+
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (csrf) {
+        headers["X-CSRF-Token"] = csrf;
+      }
+
+      const res = await fetch(`/api/v1/admin/catalog/products/${encodeURIComponent(productId)}/images/${encodeURIComponent(imageIdToRemove)}`, {
+        method: "DELETE",
+        headers,
+        body: JSON.stringify({
+          expectedRevision: gallery.revision,
+        }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        if (res.status === 409) {
+          if (data?.error?.code === "STALE_GALLERY") {
+            setIsStale(true);
+            throw new Error("تم تعديل المعرض من قبل مستخدم أو عملية أخرى. يرجى مراجعة المعرض وإعادة المحاولة.");
+          }
+          throw new Error(data?.error?.message || "تعارض في حالة المنتج.");
+        }
+        if (res.status === 401) {
+          throw new Error("انتهت الجلسة. سجل الدخول ثم أعد المحاولة؛ بياناتك محفوظة في النموذج.");
+        }
+        if (res.status >= 500) {
+          throw new Error("حدث خطأ في الخادم أثناء إزالة الصورة. أعد المحاولة.");
+        }
+        throw new Error(data?.error?.message || `فشل إزالة الصورة (${res.status})`);
+      }
+
+      const data = await res.json();
+      setGallery(data.gallery);
+      setLocalMappings(null);
+      setLocalAltTexts({});
+      setLocalOrder(null);
+      setFieldErrors({});
+      setSaveError(null);
+      setIsStale(false);
+      setConfirmRemoveImageId(null);
+
+      const announcement = `الإجراء ${++announcementSequence.current}: ` + (data.gallery.images.length === 0
+        ? "تمت إزالة الصورة. لا توجد صور في المعرض الآن."
+        : wasMapped
+        ? "تمت إزالة الصورة وفك ارتباط المتغيرات بها؛ تستخدم الصورة الرئيسية الآن."
+        : "تمت إزالة الصورة من المعرض بنجاح.");
+      setMoveAnnouncement(announcement);
+      setSaveSuccess(announcement);
+
+      pendingFocusAfterRemove.current = nextFocusId;
+
+      if (onGalleryUpdate && data.gallery) {
+        onGalleryUpdate(data.gallery);
+      } else if (onUploadSuccess && data.gallery) {
+        onUploadSuccess(data.gallery);
+      } else {
+        onRetry();
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "حدث خطأ غير متوقع أثناء إزالة الصورة";
+      setSaveError(message);
+      setConfirmRemoveImageId(null);
+      if (imageIdToRemove) {
+        removeButtons.current[imageIdToRemove]?.focus();
+      }
+    } finally {
+      setRemovingImageId(null);
+    }
+  };
+
+
   if (!productId) {
     return (
       <section className="rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs">
@@ -318,7 +467,7 @@ function ProductGalleryState({
   return (
     <section
       className="space-y-4 rounded-2xl border border-slate-300 bg-white p-5 sm:p-6 shadow-xs"
-      aria-busy={loading || uploading || saving}
+      aria-busy={loading || uploading || saving || !!removingImageId}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -344,7 +493,7 @@ function ProductGalleryState({
           <button
             type="button"
             onClick={handleSaveGallery}
-            disabled={!isDirty || isStale || saving || uploading || loading || !!error || gallery?.productId !== productId}
+            disabled={!isDirty || isStale || saving || uploading || !!removingImageId || loading || !!error || gallery?.productId !== productId}
             className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             data-testid="gallery-save-button"
           >
@@ -362,14 +511,14 @@ function ProductGalleryState({
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 onChange={handleFileChange}
-                disabled={uploading || saving || loading || !!error || gallery?.productId !== productId}
+                disabled={uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
                 className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
                 aria-label="اختر صورة للمنتج"
                 data-testid="gallery-upload-input"
               />
               <button
                 type="submit"
-                disabled={!selectedFile || !idempotencyKey || uploading || saving || loading || !!error || gallery?.productId !== productId}
+                disabled={!selectedFile || !idempotencyKey || uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
                 className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 data-testid="gallery-upload-button"
               >
@@ -405,11 +554,8 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold text-blue-700 underline"
               onClick={() => {
-                if (!window.confirm("سيؤدي إعادة التحميل إلى تجاهل ترتيب الصور والأوصاف غير المحفوظة. هل تريد المتابعة؟")) return;
-                setSaveError(null);
-                setLocalOrder(null);
-                setLocalAltTexts({});
-                setFieldErrors({});
+                if (!window.confirm("سيؤدي إعادة التحميل إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة. هل تريد المتابعة؟")) return;
+                setDiscardOnRefresh(true);
                 onRetry();
               }}
               data-testid="gallery-reload-button"
@@ -419,6 +565,24 @@ function ProductGalleryState({
           )}
         </div>
       )}
+
+      {gallery && <fieldset disabled={saving || uploading || !!removingImageId || loading || !!error || gallery.productId !== productId} className="space-y-3">
+
+        <legend className="font-semibold">صور المتغيرات المحفوظة</legend>
+        <p className="text-sm text-slate-600">احفظ المتغيرات الجديدة أولاً. بدون تعيين تستخدم الصورة الرئيسية، أو لا توجد صورة عندما يكون المعرض فارغاً.</p>
+        {variants.map(variant => <label key={variant.id} className="block text-sm">
+          {variant.sku} {Object.entries(variant.attributes).map(([name, value]) => `${name}: ${value}`).join(" / ")}
+          <select className="mt-1 block min-h-11 w-full rounded-lg border border-slate-400 bg-white p-2"
+            aria-invalid={!!fieldErrors[`variantImages.${variant.id}`]} aria-describedby={fieldErrors[`variantImages.${variant.id}`] ? `variant-image-error-${variant.id}` : undefined}
+            data-testid={`variant-image-${variant.id}`} aria-label={`صورة المتغير ${variant.sku}`}
+            value={mappings[variant.id] ?? ""} onChange={event => { setLocalMappings({ ...mappings, [variant.id]: event.target.value }); setSaveSuccess(null); }}>
+            <option value="">الصورة الرئيسية / بدون صورة</option>
+            {orderedImages.map((image, index) => <option key={image.id} value={image.id}>{index + 1}: {(localAltTexts[image.id] ?? image.altText).trim() || `الصورة ${index + 1} (بدون وصف)`}</option>)}
+          </select>
+          {fieldErrors[`variantImages.${variant.id}`] && <span id={`variant-image-error-${variant.id}`} role="alert">{fieldErrors[`variantImages.${variant.id}`]}</span>}
+        </label>)}
+        {Object.entries(fieldErrors).filter(([field]) => field.startsWith("variantImages")).map(([field, message]) => <p key={field} role="alert">{message}</p>)}
+      </fieldset>}
 
       {uploadError && (
         <div
@@ -432,7 +596,7 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold underline"
               onClick={handleRetryUpload}
-              disabled={uploading || saving || loading || !!error || gallery?.productId !== productId}
+              disabled={uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
               data-testid="gallery-upload-retry"
             >
               إعادة المحاولة
@@ -530,11 +694,11 @@ function ProductGalleryState({
                         ref={node => { moveButtons.current[key] = node; }}
                         aria-label={`${direction === -1 ? "نقل إلى موضع سابق" : "نقل إلى موضع لاحق"} للصورة ${index + 1}`}
                         aria-disabled={boundary}
-                        disabled={saving || uploading || loading || !!error || gallery.productId !== productId}
+                        disabled={saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
                         data-testid={`gallery-move-${direction === -1 ? "earlier" : "later"}-${image.id}`}
                         className="min-h-11 rounded-lg border border-slate-400 px-3 py-2 text-xs font-semibold aria-disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50"
                         onClick={() => {
-                          if (boundary || saving || uploading || loading || error) return;
+                          if (boundary || saving || uploading || loading || !!removingImageId || error) return;
                           const ids = orderedImages.map(item => item.id);
                           const previousPrimary = ids[0];
                           [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
@@ -546,6 +710,19 @@ function ProductGalleryState({
                         {direction === -1 ? "نقل إلى موضع سابق" : "نقل إلى موضع لاحق"}
                       </button>;
                     })}
+                    <button
+                      type="button"
+                      ref={(node) => { removeButtons.current[image.id] = node; }}
+                      aria-label={`إزالة الصورة ${index + 1}`}
+                      disabled={saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
+                      data-testid={`gallery-remove-${image.id}`}
+                      className="min-h-11 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+                      onClick={() => {
+                        setConfirmRemoveImageId(image.id);
+                      }}
+                    >
+                      إزالة الصورة
+                    </button>
                   </div>
                   <p className="truncate text-xs text-slate-500" title={currentAlt || "(بدون نص بديل)"}>
                     {currentAlt ? `النص: ${currentAlt}` : "(بدون نص بديل)"}
@@ -562,7 +739,7 @@ function ProductGalleryState({
                     type="text"
                     value={currentAlt}
                     maxLength={500}
-                    disabled={saving || uploading || loading || !!error || gallery?.productId !== productId}
+                    disabled={saving || uploading || loading || !!removingImageId || !!error || gallery?.productId !== productId}
                     onChange={(e) => {
                       const val = e.target.value;
                       setLocalAltTexts((prev) => ({ ...prev, [image.id]: val }));
@@ -609,6 +786,66 @@ function ProductGalleryState({
           })}
         </div>
       )}
+
+      {confirmRemoveImageId && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="gallery-remove-dialog-title"
+          data-testid="gallery-remove-dialog"
+          tabIndex={-1}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !removingImageId) {
+              const idToFocus = confirmRemoveImageId;
+              setConfirmRemoveImageId(null);
+              removeButtons.current[idToFocus]?.focus();
+            }
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-xs"
+        >
+          <div className="max-w-md w-full rounded-2xl border border-rose-200 bg-white p-6 shadow-xl space-y-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-rose-50 text-lg font-bold text-rose-700">
+              ⚠️
+            </div>
+            <h3 id="gallery-remove-dialog-title" className="text-base font-bold text-slate-900">
+              تأكيد إزالة الصورة
+            </h3>
+            <p className="text-xs leading-relaxed text-slate-600">
+              هل أنت متأكد من رغبتك في إزالة هذه الصورة من المعرض؟ سيتم فك ارتباط الصورة من أي متغيرات مرتبطة بها (ستستخدم المتغيرات الصورة الرئيسية تلقائياً). لن يتم حذف ملف الصورة الأصلي للحفاظ على السجلات السابقة.
+            </p>
+            {isDirty && (
+              <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+                تنبيه: لديك تعديلات غير محفوظة في المعرض (ترتيب أو أوصاف أو تعيينات). ستؤدي إزالة الصورة إلى تجاهل هذه التعديلات غير المحفوظة.
+              </div>
+            )}
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                disabled={!!removingImageId}
+                onClick={() => {
+                  const idToFocus = confirmRemoveImageId;
+                  setConfirmRemoveImageId(null);
+                  removeButtons.current[idToFocus]?.focus();
+                }}
+                className="rounded-lg border border-slate-300 px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                data-testid="gallery-remove-cancel"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                disabled={!!removingImageId}
+                onClick={() => handleExecuteRemove(confirmRemoveImageId)}
+                className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
+                data-testid="gallery-remove-confirm"
+              >
+                {removingImageId ? "جارٍ الإزالة…" : "تأكيد الإزالة"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
+

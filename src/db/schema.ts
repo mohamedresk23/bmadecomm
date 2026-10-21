@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, AnyPgColumn } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, foreignKey, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { createId } from "@paralleldrive/cuid2";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
 // (see migration 0002_audit_append_only).
@@ -318,11 +319,21 @@ export const products = pgTable("products", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  slug: text("slug").notNull().$defaultFn(() => `prd-${createId()}`),
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
   status: text("status").notNull().default("draft"),
   mediaRevision: bigint("media_revision", { mode: "bigint" }).notNull().default(sql`0`),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
-}, t => [check("products_status_check", sql`${t.status} IN ('draft', 'published', 'archived')`)]);
+}, t => [
+  uniqueIndex("products_slug_unique").on(t.slug),
+  check("products_status_check", sql`${t.status} IN ('draft', 'published', 'archived')`),
+  check("products_slug_normalized", sql`${t.slug} = lower(btrim(${t.slug})) AND ${t.slug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${t.slug}) <= 255`),
+  check("products_meta_title_len", sql`${t.metaTitle} IS NULL OR length(${t.metaTitle}) <= 70`),
+  check("products_meta_description_len", sql`${t.metaDescription} IS NULL OR length(${t.metaDescription}) <= 160`),
+]);
 
 export const variants = pgTable("variants", {
   id: text("id").primaryKey(),
@@ -336,6 +347,7 @@ export const variants = pgTable("variants", {
   sortOrder: integer("sort_order").notNull(),
 }, t => [
   uniqueIndex("variants_sku_unique").on(t.sku),
+  uniqueIndex("variants_product_id_uq").on(t.productId, t.id),
   uniqueIndex("variants_product_combination_unique").on(t.productId, t.combinationKey),
   check("variants_sku_normalized", sql`${t.sku} = upper(btrim(${t.sku})) AND ${t.sku} ~ '^[A-Z0-9][A-Z0-9._-]{0,63}$'`),
   check("variants_money_valid", sql`${t.priceMinor} >= 0 AND (${t.comparePriceMinor} IS NULL OR ${t.comparePriceMinor} >= ${t.priceMinor})`),
@@ -364,9 +376,36 @@ export const productMedia = pgTable("product_media", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [
   uniqueIndex("product_media_product_media_uq").on(t.productId, t.mediaId),
+  uniqueIndex("product_media_product_id_uq").on(t.productId, t.id),
   uniqueIndex("product_media_active_sort_order_uq").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
   index("product_media_active_ordered_idx").on(t.productId, t.sortOrder).where(sql`${t.removedAt} IS NULL`),
   index("product_media_reverse_media_idx").on(t.mediaId),
   check("product_media_sort_order_nonnegative", sql`${t.sortOrder} >= 0`),
 ]);
 
+export const variantMedia = pgTable("variant_media", {
+  variantId: text("variant_id").primaryKey(),
+  productId: text("product_id").notNull(),
+  productMediaId: text("product_media_id").notNull(),
+}, t => [
+  foreignKey({ name: "variant_media_variant_fk", columns: [t.productId, t.variantId], foreignColumns: [variants.productId, variants.id] }).onDelete("restrict"),
+  foreignKey({ name: "variant_media_attachment_fk", columns: [t.productId, t.productMediaId], foreignColumns: [productMedia.productId, productMedia.id] }).onDelete("restrict"),
+  index("variant_media_attachment_idx").on(t.productMediaId),
+]);
+
+
+
+export const slugRedirects = pgTable("slug_redirects", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  sourceSlug: text("source_slug").notNull(),
+  targetSlug: text("target_slug").notNull(),
+  productId: text("product_id").notNull().references(() => products.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [
+  uniqueIndex("slug_redirects_source_slug_uq").on(t.sourceSlug),
+  index("slug_redirects_product_id_idx").on(t.productId),
+  index("slug_redirects_target_slug_idx").on(t.targetSlug),
+  check("slug_redirects_no_self_redirect", sql`${t.sourceSlug} <> ${t.targetSlug}`),
+  check("slug_redirects_source_slug_normalized", sql`${t.sourceSlug} = lower(btrim(${t.sourceSlug})) AND ${t.sourceSlug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${t.sourceSlug}) <= 255`),
+  check("slug_redirects_target_slug_normalized", sql`${t.targetSlug} = lower(btrim(${t.targetSlug})) AND ${t.targetSlug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${t.targetSlug}) <= 255`),
+]);

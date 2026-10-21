@@ -3,6 +3,9 @@ import { z } from "zod";
 export const MAX_MONEY_MINOR = BigInt("9223372036854775807");
 export const normalizeSku = (value: string) => value.normalize("NFKC").trim().toUpperCase();
 export const normalizeAttribute = (value: string) => value.normalize("NFKC").trim().toLowerCase();
+export const SLUG_REGEX = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+export const normalizeSlug = (value: string) => value.trim().toLowerCase();
+
 export function combinationKey(attributes: Record<string, string>): string {
   return JSON.stringify(Object.entries(attributes).map(([name, value]) => [normalizeAttribute(name), normalizeAttribute(value)]).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0));
 }
@@ -43,11 +46,39 @@ const variantFields = {
 };
 const variantSchema = z.object(variantFields).strict();
 const editVariantSchema = z.object({ ...variantFields, id: identifier.optional() }).strict();
+
+export const slugSchema = z.string()
+  .transform(normalizeSlug)
+  .pipe(
+    z.string()
+      .min(1, "Slug is required")
+      .max(255, "Slug cannot exceed 255 characters")
+      .regex(SLUG_REGEX, "Slug must contain only lowercase alphanumeric characters and single hyphens")
+  );
+
+const metaTitleSchema = z.string()
+  .trim()
+  .max(70, "Meta title cannot exceed 70 characters")
+  .refine(noControls, "Invalid meta title")
+  .nullable()
+  .optional();
+
+const metaDescriptionSchema = z.string()
+  .trim()
+  .max(160, "Meta description cannot exceed 160 characters")
+  .refine(value => wellFormedUnicode(value) && !value.includes("\u0000"), "Invalid meta description")
+  .nullable()
+  .optional();
+
 const productFields = {
   name: z.string().trim().min(1, "Name is required").max(200).refine(noControls, "Invalid name"),
   description: z.string().trim().max(5000).refine(value => wellFormedUnicode(value) && !value.includes("\u0000"), "Invalid description").nullable().optional(),
+  slug: slugSchema.optional(),
+  metaTitle: metaTitleSchema,
+  metaDescription: metaDescriptionSchema,
   categoryIds: z.array(identifier).min(1, "Select at least one category").max(50).refine(ids => new Set(ids).size === ids.length, "Category IDs must be unique"),
 };
+
 function validateVariants(value: { variants: z.infer<typeof editVariantSchema>[] }, ctx: z.RefinementCtx) {
   const combinations = new Set<string>();
   const dimensions = Object.keys(value.variants[0]?.attributes ?? {}).sort().join("\u0000");
@@ -62,17 +93,35 @@ function validateVariants(value: { variants: z.infer<typeof editVariantSchema>[]
     if (variant.id) ids.add(variant.id);
   });
 }
+
 export const createProductSchema = z.object({ ...productFields, variants: z.array(variantSchema).min(1).max(100) }).strict().superRefine(validateVariants);
 export const updateProductSchema = z.object({ ...productFields, variants: z.array(editVariantSchema).min(1).max(100) }).strict().superRefine(validateVariants);
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type UpdateProductInput = z.infer<typeof updateProductSchema>;
+
 export type VariantDto = {
-  id: string; sku: string; priceMinor: string; comparePriceMinor: string | null;
-  currency: string; currencyScale: number; attributes: Record<string, string>;
+  id: string;
+  sku: string;
+  priceMinor: string;
+  comparePriceMinor: string | null;
+  currency: string;
+  currencyScale: number;
+  attributes: Record<string, string>;
 };
+
 export type ProductDto = {
-  id: string; name: string; description: string | null; status: string;
-  categoryIds: string[]; variants: VariantDto[]; createdAt: string; updatedAt: string;
+  id: string;
+  name: string;
+  description: string | null;
+  slug: string;
+  metaTitle: string | null;
+  metaDescription: string | null;
+  publishedAt: string | null;
+  status: string;
+  categoryIds: string[];
+  variants: VariantDto[];
+  createdAt: string;
+  updatedAt: string;
 };
 
 /** Parse decimal text without ever routing money through a floating-point number. */
@@ -84,10 +133,12 @@ export function decimalToMinor(value: string, scale: number): string {
   if (amount > MAX_MONEY_MINOR) throw new Error("Amount is too large");
   return amount.toString();
 }
+
 export function minorToDecimal(value: string, scale: number): string {
   const digits = value.padStart(scale + 1, "0");
   return scale === 0 ? digits : `${digits.slice(0, -scale)}.${digits.slice(-scale)}`;
 }
+
 export function generateVariantMatrix(dimensions: { name: string; values: string[] }[]): Record<string, string>[] {
   if (dimensions.length > 4) throw new Error("At most four dimensions are allowed");
   const names = new Set<string>();
