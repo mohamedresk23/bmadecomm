@@ -30,7 +30,7 @@ development_status:
   4-402-product-slug-validation-generation-and-redirect-chain-management: done
   4-403-product-publication-readiness-evaluation-service-and-api: done
   4-404-publish-and-unpublish-actions-with-atomic-state-transitions-and-audit-logging: done
-  4-405-public-catalog-slug-resolution-301-redirects-and-draft-isolation: backlog
+  4-405-public-catalog-slug-resolution-301-redirects-and-draft-isolation: review
   4-406-staff-admin-ui-for-publication-checklist-slug-and-seo-editing: backlog
   epic-4-retrospective: optional
 story_id_map:
