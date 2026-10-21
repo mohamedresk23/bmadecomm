@@ -1,10 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { setupTestDb, withIsolatedTx } from "../../../../test-utils/db";
 import { products, slugRedirects } from "../../../../db/schema";
 import {
-  SLUG_REGEX,
-  MAX_SLUG_LENGTH,
   MAX_BASE_SLUG_LENGTH,
   normalizeSlug,
   isValidSlug,

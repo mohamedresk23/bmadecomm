@@ -66,3 +66,7 @@
 - source_spec: `_bmad-output/implementation-artifacts/spec-e04-03-07-remove-gallery-images-while-retaining-history.md`
   summary: Align canonical lock order in updateProduct (product-service.ts) to lock product row FOR UPDATE before active attachments.
   evidence: In product-service.ts line 104, updateProduct locks product_media rows FOR UPDATE before updating products. Locking products FOR UPDATE first establishes uniform canonical lock hierarchy across all product and gallery transactions.
+
+- source_spec: `spec-4-403-product-publication-readiness-evaluation-service-and-api.md`
+  summary: Diagnose repository-wide test-runner stalls and default Turbopack access to an old BMAD render cache.
+  evidence: Full-suite attempts did not complete or produce a final summary, while the six readiness tests and five migration tests passed when selected explicitly. Default production build failed reading an inaccessible old _bmad/render/bmad-build directory; webpack production build passed including the new endpoint. The initial full-suite log recorded one provision-owner test failure without its final diagnostic summary. Investigate separately before claiming a green repository-wide suite or default build.
