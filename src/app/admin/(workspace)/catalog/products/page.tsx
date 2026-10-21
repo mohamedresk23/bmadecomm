@@ -9,6 +9,6 @@ export default async function AdminProductsPage() {
     return <section className="p-8"><h1>غير مصرح بالدخول</h1><Link href="/admin">العودة إلى الإدارة</Link></section>;
   }
   return <section className="space-y-6">
-    <AdminPageHeader title="مسودات المنتجات" section="الكتالوج" description="إنشاء وتعديل المنتجات والأسعار والمتغيرات." /><ProductManager />
+    <AdminPageHeader title="المنتجات" section="الكتالوج" description="إنشاء وتعديل المنتجات والأسعار والمتغيرات." /><ProductManager />
   </section>;
 }
