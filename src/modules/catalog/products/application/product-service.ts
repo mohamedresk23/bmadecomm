@@ -17,7 +17,7 @@ async function selectAggregates(db: DbContext, publishedOnly: boolean, id?: stri
       'attributes', coalesce((select jsonb_object_agg(a.name, a.value) from variant_attributes a where a.variant_id = v.id), '{}'::jsonb)
       ) order by v.sort_order) from variants v where v.product_id = "products"."id"), '[]'::jsonb)` })
     .from(products)
-    .where(and(id ? eq(products.id, id) : undefined, publishedOnly ? eq(products.status, "published") : id ? undefined : eq(products.status, "draft")))
+    .where(and(id ? eq(products.id, id) : undefined, publishedOnly ? eq(products.status, "published") : id ? undefined : inArray(products.status, ["draft", "published"])))
     .orderBy(asc(products.createdAt), asc(products.id));
   return rows.map(({ product, categoryIds, variantRows }) => {
     const { mediaRevision: _mediaRevision, ...rest } = product;

@@ -9,10 +9,73 @@ import { db } from "../../../../../db";
 import { auditEvents, media, productMedia, sessions, storeSettings } from "../../../../../db/schema";
 import { GET, POST } from "../../../../api/v1/admin/catalog/products/route";
 import { GET as detail, PUT } from "../../../../api/v1/admin/catalog/products/[id]/route";
-import { GET as galleryGet } from "../../../../api/v1/admin/catalog/products/[id]/images/route";
+import { GET as galleryGet, PUT as galleryPut } from "../../../../api/v1/admin/catalog/products/[id]/images/route";
 import { GET as publicList } from "../../../../api/v1/store/products/route";
 import { GET as publicDetail } from "../../../../api/v1/store/products/[id]/route";
 import { getProductById } from "../../../../../modules/catalog/products/application/product-service";
+import { GET as readinessGet } from "../../../../api/catalog/products/[id]/readiness/route";
+import { POST as publish } from "../../../../api/catalog/products/[id]/publish/route";
+import { POST as unpublish } from "../../../../api/catalog/products/[id]/unpublish/route";
+import { GET as bySlug } from "../../../../api/public/products/by-slug/[slug]/route";
+
+it("focuses persisted corrections, refreshes gallery readiness and completes the published metadata lifecycle", async () => {
+  const transport = await connect();
+  const created = await POST(fixture.request("POST", { name: "Lifecycle", description: "", slug: "lifecycle-original", categoryIds: [fixture.categoryId], variants: [{ sku: "LIFECYCLE", priceMinor: "0", attributes: {} }] }, undefined, { "Idempotency-Key": crypto.randomUUID() }));
+  const product = (await created.json()).product;
+  fixture.productIds.push(product.id);
+  const mediaId = crypto.randomUUID(), imageId = crypto.randomUUID();
+  await db.insert(media).values({ id: mediaId, filename: "lifecycle.png", mimeType: "image/png", size: 10, status: "pending" });
+  await db.insert(productMedia).values({ id: imageId, productId: product.id, mediaId, sortOrder: 0, altText: "" });
+  const resolve = (slug: string) => bySlug(new Request(`http://localhost:3000/api/public/products/by-slug/${slug}`), { params: Promise.resolve({ slug }) });
+  async function reopen() {
+    cleanup(); render(<ProductManager />);
+    await screen.findByRole("button", { name: "تعديل Lifecycle" });
+    fireEvent.click(screen.getByRole("button", { name: "تعديل Lifecycle" }));
+    await screen.findByText("تعديل المنتج المنشور");
+    await waitFor(() => expect((screen.getByRole("button", { name: "إلغاء النشر" }) as HTMLButtonElement).disabled).toBe(false));
+  }
+  try {
+    render(<ProductManager />); await screen.findByRole("button", { name: "تعديل Lifecycle" });
+    fireEvent.click(screen.getByRole("button", { name: "تعديل Lifecycle" }));
+    await screen.findByTestId(`gallery-alt-input-${imageId}`);
+    fireEvent.click(await screen.findByText("أدخل وصف المنتج")); expect(document.activeElement).toBe(screen.getByLabelText("الوصف"));
+    fireEvent.click(screen.getByText("أدخل سعراً موجباً")); expect(document.activeElement).toBe(screen.getByLabelText("السعر 1"));
+    fireEvent.click(screen.getByText("أدخل النص البديل للصورة")); expect(document.activeElement).toBe(screen.getByTestId(`gallery-alt-input-${imageId}`));
+    expect((await resolve(product.slug)).status).toBe(404);
+    change("الوصف", "Lifecycle description"); change("السعر 1", "2.00");
+    fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!); await screen.findByText("تم حفظ المسودة بنجاح.");
+    const before = transport.mock.calls.filter(([url]) => url.endsWith("/readiness")).length;
+    fireEvent.change(screen.getByTestId(`gallery-alt-input-${imageId}`), { target: { value: "Accessible image" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button")); await screen.findByTestId("gallery-save-success");
+    await screen.findByText("المنتج جاهز للنشر.");
+    expect(transport.mock.calls.filter(([url]) => url.endsWith("/readiness")).length).toBeGreaterThan(before);
+    await waitFor(() => expect((screen.getByRole("button", { name: "نشر المنتج" }) as HTMLButtonElement).disabled).toBe(false));
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "نشر المنتج" })); await screen.findByText("حالة المنتج: منشور");
+    expect((await resolve(product.slug)).status).toBe(200);
+    expect((await publicDetail(new Request(`http://localhost:3000/api/v1/store/products/${product.id}`), { params: Promise.resolve({ id: product.id }) })).status).toBe(200);
+    await reopen();
+    change("الرابط (Slug)", "lifecycle-updated"); change("عنوان محركات البحث", "Persisted SEO"); change("وصف محركات البحث", "Persisted description");
+    fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!); await screen.findByText("تم حفظ المسودة بنجاح.");
+    const redirect = await resolve(product.slug);
+    expect(redirect.status).toBe(301); expect(redirect.headers.get("Location")).toBe("/products/lifecycle-updated");
+    expect((await resolve("lifecycle-updated")).status).toBe(200);
+    await reopen();
+    expect((screen.getByLabelText("عنوان محركات البحث") as HTMLInputElement).value).toBe("Persisted SEO");
+    expect((screen.getByLabelText("وصف محركات البحث") as HTMLInputElement).value).toBe("Persisted description");
+    change("عنوان محركات البحث", ""); change("وصف محركات البحث", "");
+    fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!); await screen.findByText("تم حفظ المسودة بنجاح.");
+    await reopen();
+    expect((screen.getByLabelText("عنوان محركات البحث") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("وصف محركات البحث") as HTMLInputElement).value).toBe("");
+    expect(await getProductById(db, product.id)).toMatchObject({ metaTitle: null, metaDescription: null });
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء النشر" })); await screen.findByText("حالة المنتج: مسودة");
+    expect((await resolve("lifecycle-updated")).status).toBe(404); expect((await resolve(product.slug)).status).toBe(404);
+    expect((await publicDetail(new Request(`http://localhost:3000/api/v1/store/products/${product.id}`), { params: Promise.resolve({ id: product.id }) })).status).toBe(404);
+  } finally {
+    cleanup(); await db.delete(productMedia).where(eq(productMedia.id, imageId)); await db.delete(media).where(eq(media.id, mediaId));
+  }
+});
 
 beforeAll(setupTestDb);
 let fixture: Awaited<ReturnType<typeof catalogFixture>>;
@@ -24,9 +87,13 @@ async function connect() {
     headers.set("Cookie", `__Host-staff-session=${fixture.token}`);
     headers.set("Origin", "http://localhost:3000");
     const req = new Request(new URL(url, "http://localhost:3000"), { ...options, headers });
+    if (url.startsWith("/api/catalog/products/") && url.endsWith("/readiness")) return readinessGet(req, { params: Promise.resolve({ id: url.split("/")[4] }) });
+    if (url.endsWith("/publish")) return publish(req, { params: Promise.resolve({ id: url.split("/")[4] }) });
+    if (url.endsWith("/unpublish")) return unpublish(req, { params: Promise.resolve({ id: url.split("/")[4] }) });
     const id = url.split("/")[6];
     const context = { params: Promise.resolve({ id }) };
     if (url.endsWith("/images")) {
+      if (options?.method === "PUT") return galleryPut(req,context);
       if (options?.method === "POST") return Response.json({success:true,gallery:{productId:id,revision:"1",primaryImageId:null,images:[],variantImages:[],publicationIssues:[]}}, {status:201});
       return galleryGet(req,context);
     }
@@ -164,7 +231,7 @@ describe("ProductManager with real API handlers and migrated database", () => {
   it("saves a generated matrix, reloads, edits, reloads again, and isolates public reads", async () => {
     await connect();
     const view = render(<ProductManager />); await ready();
-    expect(screen.getByText("لا توجد مسودات بعد.")).toBeDefined();
+    expect(screen.getByText("لا توجد منتجات بعد.")).toBeDefined();
     change("اسم المنتج", "قميص"); change("الوصف", "قطن"); fireEvent.click(screen.getByLabelText("ملابس"));
     change("أبعاد المتغيرات", "Color: Red, Blue\nSize: M"); fireEvent.click(screen.getByRole("button", { name: "توليد المتغيرات" }));
     change("SKU 1", "UI-RED"); change("السعر 1", "0.29"); change("سعر المقارنة 1", "1.00");
@@ -361,4 +428,51 @@ describe("ProductManager with real API handlers and migrated database", () => {
       fireEvent.click(screen.getByRole("button", { name: "حفظ المسودة" })); await screen.findByText("تم حفظ المسودة بنجاح.");
     } finally { await db.update(storeSettings).set({ currency: "EGP", currencyExponent: 2 }).where(eq(storeSettings.id, "default")); }
   });
+});
+it("validates and persists slug/SEO through product writer, clears overrides, and guards metadata replacements", async () => {
+  const transport = await connect(); render(<ProductManager />); await ready(); enterSimple("SEO-UI");
+  change("الرابط (Slug)", "x".repeat(256)); change("عنوان محركات البحث", "x".repeat(71)); change("وصف محركات البحث", "x".repeat(161));
+  fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+  await screen.findByText("صحح بيانات الرابط ومحركات البحث.");
+  expect((screen.getByLabelText("عنوان محركات البحث") as HTMLInputElement).value).toHaveLength(71);
+  expect(transport.mock.calls.some(([, options]) => options?.method === "POST")).toBe(false);
+  change("الرابط (Slug)", "  Custom-Slug  "); change("عنوان محركات البحث", "عنوان مخصص"); change("وصف محركات البحث", "x".repeat(160));
+  fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!); await screen.findByText("تم حفظ المسودة بنجاح.");
+  const created = transport.mock.calls.find(([, options]) => options?.method === "POST")!;
+  expect(JSON.parse(created[1]!.body as string)).toMatchObject({ slug: "custom-slug", metaTitle: "عنوان مخصص", metaDescription: "x".repeat(160) });
+  await screen.findByText("أضف صورة للمنتج");
+  change("عنوان محركات البحث", ""); change("وصف محركات البحث", "");
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false); fireEvent.click(screen.getByRole("button", { name: "منتج جديد" }));
+  expect(confirm).toHaveBeenCalled(); expect((screen.getByLabelText("الرابط (Slug)") as HTMLInputElement).value).toBe("custom-slug");
+  fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+  await waitFor(() => expect(transport.mock.calls.some(([, options]) => options?.method === "PUT")).toBe(true));
+  const updated = transport.mock.calls.find(([, options]) => options?.method === "PUT")!;
+  expect(JSON.parse(updated[1]!.body as string)).toMatchObject({metaTitle:null,metaDescription:null});
+});
+it("locks selection, product saving and gallery while publication is pending and updates server status",async()=>{
+  const transport=await connect();const original=transport.getMockImplementation()!;
+  let finish!: (response:Response)=>void;
+  transport.mockImplementation(async(url,options)=>{
+    if(url.endsWith("/readiness"))return Response.json({isReady:true,issues:[]});
+    if(url.endsWith("/publish"))return new Promise(resolve=>{finish=resolve;});
+    return original(url,options);
+  });
+  vi.spyOn(window,"confirm").mockReturnValue(true);
+  render(<ProductManager/>);await ready();enterSimple("PUBLISH-LOCK");fireEvent.submit(screen.getByLabelText("SKU 1").closest("form")!);
+  await screen.findByText("المنتج جاهز للنشر.");await waitFor(()=>expect((screen.getByRole("button",{name:"نشر المنتج"}) as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(screen.getByRole("button",{name:"نشر المنتج"}));
+  expect((screen.getByRole("button",{name:"منتج جديد"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button",{name:"تعديل قميص"}) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByLabelText("اسم المنتج") as HTMLInputElement).disabled || screen.getByLabelText("اسم المنتج").closest("fieldset")?.disabled).toBe(true);
+  expect((screen.getByTestId("gallery-upload-input") as HTMLInputElement).disabled).toBe(true);
+  await waitFor(()=>expect(finish).toBeTypeOf("function"));
+  const saved=await getProductById(db,fixture.productIds[0]);finish(Response.json({product:{...saved,status:"published",name:"Concurrent name",description:"Concurrent description",slug:"concurrent-slug",metaTitle:"Concurrent SEO",variants:saved.variants.map(row=>({...row,sku:"CONCURRENT-SKU"}))},csrf:"rotated"}));
+  await screen.findByText("حالة المنتج: منشور");expect(screen.getByText("منشور")).toBeTruthy();
+  expect((screen.getByLabelText("اسم المنتج") as HTMLInputElement).value).toBe("Concurrent name");
+  expect((screen.getByLabelText("الوصف") as HTMLInputElement).value).toBe("Concurrent description");
+  expect((screen.getByLabelText("الرابط (Slug)") as HTMLInputElement).value).toBe("concurrent-slug");
+  expect((screen.getByLabelText("عنوان محركات البحث") as HTMLInputElement).value).toBe("Concurrent SEO");
+  expect((screen.getByLabelText("SKU 1") as HTMLInputElement).value).toBe("CONCURRENT-SKU");
+  expect(screen.queryByText("احفظ تغييرات المنتج والصور قبل تغيير حالة النشر.")).toBeNull();
+  expect((screen.getByRole("button",{name:"منتج جديد"}) as HTMLButtonElement).disabled).toBe(false);
 });

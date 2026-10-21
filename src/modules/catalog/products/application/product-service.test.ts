@@ -45,6 +45,7 @@ describe("product draft persistence", () => {
       const publicProducts = await listProducts(tx, true);
       expect(publicProducts.find(product => product.id === draft.id)?.variants).toEqual(updated.variants);
       expect(publicProducts.some(product => product.id === privateDraft.id)).toBe(false);
+      expect((await listProducts(tx)).map(product => product.id)).toEqual(expect.arrayContaining([draft.id, privateDraft.id]));
 
       // Updating a published product is allowed
       const publishedUpdated = await updateProduct(tx, draft.id, { ...input, name: "Published Edited" }, "owner");
@@ -52,6 +53,8 @@ describe("product draft persistence", () => {
 
       // Archived products cannot be edited
       await tx.update(products).set({ status: "archived" }).where(eq(products.id, draft.id));
+      expect((await listProducts(tx)).some(product => product.id === draft.id)).toBe(false);
+      expect((await listProducts(tx, true)).some(product => product.id === draft.id)).toBe(false);
       await expect(updateProduct(tx, draft.id, input, "owner")).rejects.toMatchObject({ statusCode: 409 });
     });
   });
