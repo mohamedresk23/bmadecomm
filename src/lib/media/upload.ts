@@ -2,10 +2,11 @@ import { processImage } from "./image-process";
 import { hasAnimation } from "./image-policy";
 import { createId } from "@paralleldrive/cuid2";
 import { db } from "../../db";
-import { media, productMedia, products } from "../../db/schema";
+import { media } from "../../db/schema";
+import { catalogOwnsStorageKey } from "./catalog-ownership";
 import { ApiError } from "../../shared/api/errors";
 import { storage } from "./storage";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 export const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
 export const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
@@ -102,13 +103,8 @@ export async function publishMedia(id: string) {
   }
 
   const record = records[0];
-  const draftOwners = await db.select({ id: productMedia.id })
-    .from(productMedia)
-    .innerJoin(products, eq(productMedia.productId, products.id))
-    .where(and(eq(productMedia.mediaId, id), eq(products.status, "draft")))
-    .limit(1);
-  if (draftOwners.length > 0) {
-    throw ApiError.conflict("Draft product media cannot be published through generic publish endpoint");
+  if (await catalogOwnsStorageKey(db, record.filename)) {
+    throw ApiError.conflict("Catalog media cannot be published through generic publish endpoint");
   }
 
   if (record.status === "active") {

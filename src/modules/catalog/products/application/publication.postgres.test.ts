@@ -10,6 +10,9 @@ import { seedPublication } from "../../../../test-utils/publication";
 import { publishProduct, unpublishProduct } from "./publication-service";
 import { getProductById, updateProduct } from "./product-service";
 import { updateGallery } from "./gallery-service";
+import { setupIsolatedPublicationStorage } from "../../../../test-utils/publication-storage";
+
+setupIsolatedPublicationStorage();
 
 const isolated = `publication_${randomBytes(16).toString("hex")}`;
 const url = postgresTestUrl();

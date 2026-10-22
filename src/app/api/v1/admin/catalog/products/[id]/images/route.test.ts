@@ -176,7 +176,7 @@ describe("generic publication of Draft product media", () => {
     expect(response.status).toBe(409);
     expect(await response.json()).toMatchObject({ error: {
       code: "CONFLICT",
-      message: "Draft product media cannot be published through generic publish endpoint",
+      message: "Catalog media cannot be published through generic publish endpoint",
     } });
     expect(storage.publish).not.toHaveBeenCalled();
     expect((await db.select().from(media).where(eq(media.id, mediaId)))[0].status).toBe(status);

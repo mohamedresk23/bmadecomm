@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { createHash, randomUUID } from "node:crypto";
 
 export type RecoveryMetadata = { requestId?: string };
+export type PublicCopy = { key: string; sha256: string; size: number };
+export type QuarantinedCopy = PublicCopy & { recoveryPath: string };
 
 export interface StorageAdapter {
   savePrivate(filename: string, buffer: Buffer, metadata?: RecoveryMetadata): Promise<void>;
@@ -9,6 +12,8 @@ export interface StorageAdapter {
   publish(filename: string): Promise<string>;
   removePrivate(filename: string): Promise<void>;
   removePublic(filename: string): Promise<void>;
+  inspectPublic(filename: string): Promise<PublicCopy | null>;
+  quarantinePublic(filename: string, metadata?: RecoveryMetadata): Promise<QuarantinedCopy | null>;
   recordOrphan(filename: string, location?: "private" | "public", metadata?: RecoveryMetadata): Promise<void>;
 }
 
@@ -24,8 +29,61 @@ export class LocalFileSystemAdapter implements StorageAdapter {
   }
 
   private key(filename: string) {
-    if (!/^[a-z0-9_-]+\.(jpg|png|webp)$/i.test(filename)) throw new Error("Invalid media key");
+    if (filename.length > 255 || !/^[a-z0-9_-]+\.(jpg|png|webp)$/i.test(filename)) throw Object.assign(new Error("Invalid media key"), { code: "INVALID_MEDIA_KEY" });
     return filename;
+  }
+  private async publicBytes(filename: string): Promise<Buffer | null> {
+    const source = path.join(this.publicDir, this.key(filename));
+    try {
+      const stat = await fs.lstat(source);
+      if (!stat.isFile() || stat.isSymbolicLink()) throw Object.assign(new Error("Invalid public media object"), { code: "INVALID_PUBLIC_OBJECT" });
+      return await fs.readFile(source);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }
+  }
+  async inspectPublic(filename: string): Promise<PublicCopy | null> {
+    const bytes = await this.publicBytes(filename);
+    return bytes === null ? null : { key: filename, sha256: createHash("sha256").update(bytes).digest("hex"), size: bytes.length };
+  }
+  async quarantinePublic(filename: string, metadata?: RecoveryMetadata): Promise<QuarantinedCopy | null> {
+    const bytes = await this.publicBytes(filename);
+    if (bytes === null) return null;
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const recoveryPath = path.join("storage", "catalog-quarantine", this.key(filename), sha256);
+    const destination = path.join(this.privateDir, "..", "catalog-quarantine", filename, sha256);
+    await fs.mkdir(path.dirname(destination), { recursive: true, mode: 0o700 });
+    const staging = `${destination}.${randomUUID()}.tmp`;
+    let handle;
+    try {
+      handle = await fs.open(staging, "wx", 0o600);
+      await handle.writeFile(bytes);
+      await handle.sync();
+      await handle.close();
+      // Atomic exclusive installation: an interrupted write cannot occupy the
+      // content-addressed recovery path and poison future retries.
+      try { await fs.link(staging, destination); }
+      catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
+    } catch (error) {
+      await handle?.close().catch(() => {});
+      throw error;
+    } finally {
+      await fs.rm(staging, { force: true });
+    }
+    // A previous interrupted attempt is reusable only after exact verification.
+    if (!(await fs.readFile(destination)).equals(bytes)) throw Object.assign(new Error("Quarantine verification failed"), { code: "QUARANTINE_MISMATCH" });
+    const record = { key: filename, sha256, size: bytes.length, recoveryPath };
+    const log = await fs.open(path.join(this.privateDir, "..", "catalog-quarantine", "preservation.jsonl"), "a", 0o600);
+    try {
+      await log.writeFile(JSON.stringify({ ...record, requestId: metadata?.requestId, time: new Date().toISOString() }) + "\n");
+      await log.sync();
+    } finally { await log.close(); }
+    const current = await this.publicBytes(filename);
+    if (current === null) return record;
+    if (!current.equals(bytes)) throw Object.assign(new Error("Public media changed during quarantine"), { code: "PUBLIC_COPY_CHANGED" });
+    await this.removePublic(filename);
+    return record;
   }
   async removePrivate(filename: string) { await fs.rm(path.join(this.privateDir, this.key(filename)), { force: true }); }
   async removePublic(filename: string) { await fs.rm(path.join(this.publicDir, this.key(filename)), { force: true }); }

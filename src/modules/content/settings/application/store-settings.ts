@@ -5,6 +5,7 @@ import { media, storeSettings } from "../../../../db/schema";
 import { ApiError } from "../../../../shared/api/errors";
 import { writeAudit } from "../../../../shared/authz/audit";
 import { storage } from "../../../../lib/media/storage";
+import { catalogOwnsStorageKey } from "../../../../lib/media/catalog-ownership";
 import {
   CURRENCY_METADATA,
   type AdminStoreProfileResponse,
@@ -157,6 +158,7 @@ export async function updateStoreSettings(
       if (!mediaRecord) {
         throw ApiError.notFound("Media not found");
       }
+      if (await catalogOwnsStorageKey(tx, mediaRecord.filename)) throw ApiError.conflict("Catalog media cannot be used as a store logo");
 
       if (mediaRecord.status !== "active") {
         await storage.publish(mediaRecord.filename);

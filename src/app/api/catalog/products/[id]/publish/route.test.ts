@@ -9,6 +9,9 @@ import * as audit from "../../../../../../shared/authz/audit";
 import * as publication from "../../../../../../modules/catalog/products/application/publication-service";
 import { POST as publish } from "./route";
 import { POST as unpublish } from "../unpublish/route";
+import { setupIsolatedPublicationStorage } from "../../../../../../test-utils/publication-storage";
+
+setupIsolatedPublicationStorage();
 
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 function privateResponse(response: Response, status: number) {

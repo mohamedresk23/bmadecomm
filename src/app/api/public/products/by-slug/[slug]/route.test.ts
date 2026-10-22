@@ -8,6 +8,9 @@ import { seedPublication } from "../../../../../../test-utils/publication";
 import { unpublishProduct } from "../../../../../../modules/catalog/products/application/publication-service";
 import * as service from "../../../../../../modules/catalog/products/application/public-product-service";
 import { GET, dynamic } from "./route";
+import { setupIsolatedPublicationStorage } from "../../../../../../test-utils/publication-storage";
+
+setupIsolatedPublicationStorage();
 
 const call = (slug: string, headers?: HeadersInit) => GET(new Request(`http://localhost/api/public/products/by-slug/${encodeURIComponent(slug)}`, { headers }), { params: Promise.resolve({ slug }) });
 describe("public slug HTTP resolution", () => {

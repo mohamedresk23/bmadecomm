@@ -6,6 +6,9 @@ import { setupTestDb, withIsolatedTx } from "../../../../test-utils/db";
 import { seedPublication } from "../../../../test-utils/publication";
 import * as audit from "../../../../shared/authz/audit";
 import { publishProduct, unpublishProduct } from "./publication-service";
+import { setupIsolatedPublicationStorage } from "../../../../test-utils/publication-storage";
+
+setupIsolatedPublicationStorage();
 
 describe("atomic publication service", () => {
   beforeAll(setupTestDb);

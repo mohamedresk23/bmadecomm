@@ -5,6 +5,7 @@ import { ApiError } from "../../../../shared/api/errors";
 import { writeAudit } from "../../../../shared/authz/audit";
 import { getProductById } from "./product-service";
 import { getPublicationReadiness } from "./publication-readiness-service";
+import { withdrawProductPublicCopies } from "../../../../lib/media/catalog-public-copies";
 
 export type PublicationTarget = "published" | "draft";
 
@@ -14,6 +15,7 @@ export async function transitionPublication(db: DbContext, id: string, target: P
     const [before] = await tx.select().from(products).where(eq(products.id, id)).for("update");
     if (!before) throw ApiError.notFound("Product not found");
     if (before.status === "archived") throw ApiError.conflict("Archived products cannot change publication status");
+    if (target === "draft") await withdrawProductPublicCopies(tx, id, requestId);
     if (before.status === target) return getProductById(tx, id);
     if (target === "published") {
       const readiness = await getPublicationReadiness(tx, id);

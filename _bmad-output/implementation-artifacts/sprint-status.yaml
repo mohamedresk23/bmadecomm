@@ -52,8 +52,9 @@ action_items:
     epic: 4
     action: "Prevent generic media publication from leaving public catalog image copies after unpublish; preserve noncatalog media and verify the full lifecycle (F1/A1)."
     owner: "Catalog developer"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-10-21.md"
+    implementation_evidence: "_bmad-output/implementation-artifacts/verification-a1-catalog-media-publication-privacy.md"
   - id: "epic-4-retro-item-2-gallery-worker-packaging"
     epic: 4
     action: "Include gallery worker/native dependencies in route packaging and verify an upload from the packaged gallery artifact (F2/A2)."

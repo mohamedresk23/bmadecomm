@@ -5,7 +5,7 @@ import path from "node:path";
 import { LocalFileSystemAdapter, storage } from "../../../../lib/media/storage";
 import { eq, sql } from "drizzle-orm";
 import { setupTestDb, withIsolatedTx } from "../../../../test-utils/db";
-import { auditEvents, media, storeSettings } from "../../../../db/schema";
+import { auditEvents, media, productMedia, products, storeSettings } from "../../../../db/schema";
 import { ApiError } from "../../../../shared/api/errors";
 import {
   getStoreSettings,
@@ -28,6 +28,19 @@ afterEach(async () => {
 });
 
 describe("Store Settings Application Service", () => {
+  it.each(["pending", "active"].flatMap(status => [false,true].map(alias => ({status,alias}))))("rejects historical catalog $status media (alias=$alias) as a logo before publishing", async ({status,alias}) => {
+    await withIsolatedTx(async tx => {
+      await tx.insert(products).values({id:"catalog-logo-p",name:"Historical",status:"archived"});
+      await tx.insert(media).values({id:"catalog-logo-m",filename:"catalog-logo.png",mimeType:"image/png",size:4,status});
+      await tx.insert(productMedia).values({id:"catalog-logo-i",productId:"catalog-logo-p",mediaId:"catalog-logo-m",sortOrder:0,removedAt:new Date()});
+      if(alias) await tx.insert(media).values({id:"catalog-logo-alias",filename:"CATALOG-LOGO.PNG",mimeType:"image/png",size:4,status});
+      const before = await tx.select().from(storeSettings);
+      await expect(updateStoreSettings(tx,{store_name:"Store",support_email:"a@example.test",support_phone:"01012345678",default_language:"ar-EG",currency:"EGP",timezone:"Africa/Cairo",date_format:"YYYY-MM-DD",order_prefix:"ORD-",logo_media_id:alias ? "catalog-logo-alias" : "catalog-logo-m"},"owner")).rejects.toMatchObject({statusCode:409});
+      expect(storage.publish).not.toHaveBeenCalled();
+      expect(await tx.select().from(storeSettings)).toEqual(before);
+      expect(await tx.select().from(auditEvents)).toHaveLength(0);
+    });
+  });
   it("retrieves default store settings with currency unlocked when no orders exist", async () => {
     await withIsolatedTx(async (tx) => {
       const result = await getStoreSettings(tx);
