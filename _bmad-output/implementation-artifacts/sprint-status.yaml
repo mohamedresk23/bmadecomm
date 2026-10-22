@@ -73,8 +73,9 @@ action_items:
     epic: 4
     action: "Reconcile canonical contracts and historical completion records with approved metadata-only media, product-writer SEO, migration index and acceptance evidence; preserve frozen history (F4/A4)."
     owner: "Product/architecture owner"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-10-21.md"
+    implementation_evidence: "_bmad-output/implementation-artifacts/e04-contract-reconciliation-2026-10-22.md"
   - id: "epic-4-retro-item-5-runtime-accessibility-evidence"
     epic: 4
     action: "Record outstanding real-browser RTL/reflow/keyboard, screen-reader and dedicated PostgreSQL evidence, clearly naming skipped checks (F5/A5)."

@@ -1,5 +1,9 @@
 # E04-03 implementation contract
 
+> **Precedence notice (2026-10-22, A4):** The [accepted delivery amendment](../../implementation-artifacts/e04-contract-reconciliation-2026-10-22.md) supersedes this document's scope/backend/public-projection statements that assign public image promotion or serving to E04-04. That delivery exposes image metadata only; public bytes remain future explicitly scoped work. A1 also supersedes the draft-only generic-publication guard with protection for all retained catalog ownership. Preserve other requirements and the historical wording below.
+
+> The later testing-history reference to public historical URLs is conditional future scope, not a supported feature or an exception to A1 in the accepted metadata-only delivery; see the same amendment's privacy clarification.
+
 Created 2026-10-14. Requirements below are derived from the memlog and linked sources. Endpoint names, schema layout and revision handling are spec-level design decisions; numerical policies marked proposed need adoption. No code or migration is implemented by this document.
 
 Owner decisions recorded in the canonical memlog supersede earlier proposed references below: multipart total <=5,308,416 bytes with independent file maximum 5,242,880; <=4096 pixels per dimension AND <=8,000,000 pixels total; static-only, rejecting animated WebP/APNG; processing deadline ten seconds with actual termination/temporary cleanup and no partial persistence. Local development only; separate store deployments/databases/storage; legacy routes Owner-only. Logo CSRF adaptation is a separate prerequisite authorized for execution; this does not authorize image-story implementation. Count/alt/JSON/rate and production storage/retention remain open.

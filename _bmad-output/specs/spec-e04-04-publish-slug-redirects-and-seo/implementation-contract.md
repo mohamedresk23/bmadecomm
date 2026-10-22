@@ -1,5 +1,7 @@
 # E04-04 Implementation Contract
 
+> **Precedence notice (2026-10-22, A4):** Apply the [accepted delivery amendment](../../implementation-artifacts/e04-contract-reconciliation-2026-10-22.md) for the superseded migration 0017 references (section 1 and section 4 item 1), proposed dedicated `/seo` endpoint/audit event (section 3.1), and public image delivery expectation. Accepted stories 401/405/406 define migration 0018, metadata-only public images and existing product POST/PUT with its transactional audit. Historical text remains below for traceability; do not implement the superseded alternatives as missing work.
+
 Created: 2026-10-20.
 Scope: Product Publish, Slug Redirects, and SEO Metadata.
 Building on: E04-02 (Product & Variant Drafts) and E04-03 (Product Images).

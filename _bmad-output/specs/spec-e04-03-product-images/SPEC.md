@@ -17,6 +17,8 @@ sources: []
 
 # E04-03 — Product images
 
+> **Accepted delivery amendment (2026-10-22):** Read the [A4 reconciliation record](../../implementation-artifacts/e04-contract-reconciliation-2026-10-22.md) with this kernel and its contract. It supersedes the earlier assignment of public image promotion/serving to E04-04 with the approved metadata-only delivery. Original requirements below are retained as history where explicitly superseded.
+
 > This kernel and its companions define the implementation contract. Created from the canonical `.memlog.md`; documentation only. Use the original story numbering, explicitly confirmed by the user. The proposed decomposed E04-06/E04-07 cover this same image scope; proposed decomposed E04-03 is not this work.
 
 ## Why

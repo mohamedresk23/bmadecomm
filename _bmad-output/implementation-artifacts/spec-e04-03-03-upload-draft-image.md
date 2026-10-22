@@ -2,7 +2,7 @@
 title: 'E04-03-03: Upload a Draft image with safe retry'
 type: feature
 created: '2026-10-15'
-status: review
+status: done
 route: dispatch
 story_id: E04-03-03
 epic_num: 4
@@ -35,6 +35,10 @@ context:
   - _bmad-output/implementation-artifacts/verification-e04-03-02.md
   - _bmad-output/implementation-artifacts/walkthrough-e04-03-02.md
 ---
+
+## A4 lifecycle evidence reconciliation - 2026-10-22
+
+Original frontmatter `status: review` was stale after [walkthrough section 4](walkthrough-e04-03-03.md) explicitly recorded this story as verified, approved and marked done. The [upload review remediation](spec-e04-03-03-upload-review-remediation.md) and scoped sprint story entry also record done. Frontmatter is aligned to that recorded completion; original scope, review discussion, checklists and frozen intent remain unchanged. This is not new acceptance or a repeat test run. See the [A4 evidence index](e04-contract-reconciliation-2026-10-22.md). The original opening freeze marker has no closing marker; this correction is deliberately placed before it, preserving the entire historical suffix.
 
 <frozen-after-approval reason="owner approval gates ready-for-dev and execution">
 

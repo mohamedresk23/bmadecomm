@@ -17,6 +17,8 @@ sources: []
 
 # E04-04 — Product publish, slug redirects and SEO metadata
 
+> **Accepted delivery amendment (2026-10-22):** Read the [A4 reconciliation record](../../implementation-artifacts/e04-contract-reconciliation-2026-10-22.md) with this kernel and its contract. Approved delivery uses metadata-only public images, the existing product writer for slug/SEO, and migration `0018_product_publish_slug_seo`. Earlier conflicting contract details are explicitly superseded; this does not authorize public image-byte serving or new SEO endpoints.
+
 > Canonical contract for E04-04. Derived from `.memlog.md` and authorized project foundations. This specification governs product publication gates, slug generation and editing, 301 redirect management, and basic SEO metadata.
 
 ## Why

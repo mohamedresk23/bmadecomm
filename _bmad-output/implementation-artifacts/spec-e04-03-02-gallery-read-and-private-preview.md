@@ -166,3 +166,9 @@ None. All seven architectural and security areas have been resolved against the 
 - Testing must include both PGlite unit/integration tests and real PostgreSQL isolation via `scripts/verify-gallery-schema.ts`.
 - Local PostgreSQL service must be running for live verification; failure to connect (`ECONNREFUSED`) blocks verification completion.
 - No UI mutations or edit actions are implemented in this story.
+
+## A4 completion evidence reconciliation — 2026-10-22
+
+The existing acceptance frontmatter and Human Acceptance note record explicit user approval on 2026-10-15, supported by the linked verification/walkthrough and local PostgreSQL schema verification. The nine unchecked implementation boxes above are historical checklist entries that were not reconciled when lifecycle completion was recorded; they are retained rather than checked retrospectively without task-specific records. Their presence does not reopen the accepted story. The walkthrough's review recommendation is an earlier stage, superseded by the acceptance already recorded here. See the [A4 evidence index](e04-contract-reconciliation-2026-10-22.md). No new test run or human acceptance is claimed.
+
+The earlier "PostgreSQL Environment Readiness" section's `ECONNREFUSED`/blocked wording is a historical pre-verification snapshot. It is superseded for recorded story completion by the subsequent successful PostgreSQL verification and explicit acceptance already cited above; it does not describe the current database service state. No database connection was attempted for A4.
