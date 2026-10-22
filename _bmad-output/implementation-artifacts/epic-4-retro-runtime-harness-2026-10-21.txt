@@ -1,0 +1,146 @@
+import { createServer } from "node:http";
+import { randomBytes, randomUUID } from "node:crypto";
+import assert from "node:assert/strict";
+import { writeFile, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+async function main() {
+  assert.equal(process.env.NODE_ENV, "test");
+  process.env.TEST_DATABASE_MODE = "pglite";
+  process.env.APP_URL = "http://localhost:3000";
+  process.env.STAFF_MFA_KEY = randomBytes(32).toString("base64");
+  const { db, isPostgresTest } = await import("../src/db");
+  assert.equal(isPostgresTest, false);
+  // ESM and CommonJS builds expose separate PGlite class identities under tsx.
+  assert.equal(typeof (db.$client as { exec?: unknown }).exec, "function");
+  const { setupTestDb } = await import("../src/test-utils/db");
+  await setupTestDb();
+  const schema = await import("../src/db/schema");
+  const { issueStaffSession } = await import("../src/modules/identity/infrastructure/staff-sessions");
+  const { staffConfig, STAFF_SESSION_POLICY } = await import("../src/modules/identity/infrastructure/staff-config");
+  const { sessionCsrf, encryptStaffSecret, newStaffSeed } = await import("../src/modules/identity/infrastructure/staff-crypto");
+  const userId = randomUUID(), categoryId = randomUUID();
+  const config = staffConfig();
+  await db.insert(schema.users).values({ id: userId, name: "Retrospective fixture", email: `${userId}@example.test`, phone: "01000000000", passwordHash: "fixture", role: "staff" });
+  await db.insert(schema.staffAccounts).values({ userId, mfaSeed: encryptStaffSecret(newStaffSeed(), config.key, userId, "mfa"), mfaEnrolledAt: new Date() });
+  await db.insert(schema.roles).values({ key: "owner" }).onConflictDoNothing();
+  await db.insert(schema.userRoles).values({ userId, roleKey: "owner" });
+  await db.insert(schema.categories).values({ id: categoryId, name: "Runtime category", slug: `runtime-${categoryId}` });
+  const session = await issueStaffSession(db, userId, STAFF_SESSION_POLICY);
+  assert.ok(session);
+  const csrf = sessionCsrf(session.token, config.key);
+  const collection = await import("../src/app/api/v1/admin/catalog/products/route");
+  const productRoute = await import("../src/app/api/v1/admin/catalog/products/[id]/route");
+  const galleryRoute = await import("../src/app/api/v1/admin/catalog/products/[id]/images/route");
+  const readiness = await import("../src/app/api/catalog/products/[id]/readiness/route");
+  const publish = await import("../src/app/api/catalog/products/[id]/publish/route");
+  const unpublish = await import("../src/app/api/catalog/products/[id]/unpublish/route");
+  const publicRoute = await import("../src/app/api/public/products/by-slug/[slug]/route");
+  const genericPublish = await import("../src/app/api/media/publish/route");
+  const { storage, LocalFileSystemAdapter } = await import("../src/lib/media/storage");
+  const isolatedStorageRoot = await mkdtemp(path.join(tmpdir(), "epic4-retro-storage-"));
+  const adapter = new LocalFileSystemAdapter(isolatedStorageRoot);
+  for (const name of ["savePrivate", "readPrivate", "publish", "removePrivate", "removePublic", "recordOrphan"] as const) {
+    storage[name] = adapter[name].bind(adapter) as never;
+  }
+  const server = createServer(async (incoming, outgoing) => {
+    try {
+      const chunks: Buffer[] = [];
+      for await (const chunk of incoming) chunks.push(Buffer.from(chunk));
+      const method = incoming.method ?? "GET";
+      const request = new Request(`http://localhost:3000${incoming.url}`, {
+        method, headers: incoming.headers as Record<string, string>,
+        ...(method === "GET" ? {} : { body: Buffer.concat(chunks) }),
+      });
+      const segments = new URL(request.url).pathname.split("/").filter(Boolean);
+      let response: Response;
+      if (segments[1] === "media") response = await genericPublish.POST(request);
+      else if (segments[1] === "public") response = await publicRoute.GET(request, { params: Promise.resolve({ slug: segments[4] }) });
+      else if (segments[1] === "catalog") {
+        const context = { params: Promise.resolve({ id: segments[3] }) };
+        response = segments[4] === "readiness" ? await readiness.GET(request, context)
+          : segments[4] === "publish" ? await publish.POST(request, context) : await unpublish.POST(request, context);
+      } else if (segments[6] === "images") {
+        const context = { params: Promise.resolve({ id: segments[5] }) };
+        response = method === "PUT" ? await galleryRoute.PUT(request, context) : await galleryRoute.GET(request, context);
+      } else if (segments[5]) {
+        const context = { params: Promise.resolve({ id: segments[5] }) };
+        response = method === "PUT" ? await productRoute.PUT(request, context) : await productRoute.GET(request, context);
+      } else response = method === "POST" ? await collection.POST(request) : await collection.GET(request);
+      outgoing.writeHead(response.status, Object.fromEntries(response.headers));
+      outgoing.end(Buffer.from(await response.arrayBuffer()));
+    } catch (error) { outgoing.writeHead(500); outgoing.end(String(error)); }
+  });
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address(); assert.ok(address && typeof address === "object");
+  const origin = `http://127.0.0.1:${address.port}`;
+  const observed: object[] = [];
+  async function request(path: string, expected: number, body?: unknown, method = "GET", guest = false) {
+    const response = await fetch(`${origin}${path}`, {
+      method, redirect: "manual", headers: guest ? {} : {
+        Cookie: `__Host-staff-session=${session!.token}`, Origin: config.origin,
+        "Content-Type": "application/json", "X-CSRF-Token": csrf,
+        "X-Pricing-Revision": "EGP:2", "Idempotency-Key": randomUUID(),
+      }, ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const raw = await response.text();
+    assert.equal(response.status, expected, `${path}: ${raw}`);
+    observed.push({ method, path, status: response.status, cacheControl: response.headers.get("cache-control"), location: response.headers.get("location") });
+    return { response, data: raw ? JSON.parse(raw) : null };
+  }
+  try {
+    const base = "/api/v1/admin/catalog/products";
+    const input = { name: "Runtime product", description: "Runtime description", slug: "retro-runtime-before", categoryIds: [categoryId], variants: [{ sku: "RETRO-RUNTIME", priceMinor: "100", attributes: {} }] };
+    const { data: created } = await request(base, 201, input, "POST");
+    const product = created.product;
+    const life = `/api/catalog/products/${product.id}`;
+    const publicPath = "/api/public/products/by-slug/";
+    await request(publicPath + input.slug, 404, undefined, "GET", true);
+    const { data: blocked } = await request(life + "/readiness", 200);
+    assert.equal(blocked.isReady, false);
+    await request(life + "/publish", 422, {}, "POST");
+    const { createId } = await import("@paralleldrive/cuid2");
+    const imageId = randomUUID(), mediaId = createId();
+    // Explicit isolated fixture metadata; no real media object or application DB is used.
+    await db.insert(schema.media).values({ id: mediaId, filename: "fixture.png", mimeType: "image/png", size: 10, status: "pending" });
+    await db.insert(schema.productMedia).values({ id: imageId, productId: product.id, mediaId, sortOrder: 0, altText: "" });
+    const { data: gallery } = await request(`${base}/${product.id}/images`, 200);
+    await request(`${base}/${product.id}/images`, 200, { expectedRevision: gallery.gallery.revision, images: [{ id: imageId, altText: "Runtime alternative text" }], variantImages: [] }, "PUT");
+    const { data: ready } = await request(life + "/readiness", 200); assert.equal(ready.isReady, true);
+    await request(life + "/publish", 200, {}, "POST");
+    const { data: visible } = await request(publicPath + input.slug, 200, undefined, "GET", true);
+    assert.equal(visible.name, input.name); assert.equal("status" in visible, false); assert.equal(visible.images[0].altText, "Runtime alternative text");
+    const updatedInput = { ...input, slug: "retro-runtime-after", metaTitle: "Runtime SEO", variants: [{ ...input.variants[0], id: product.variants[0].id }] };
+    await request(`${base}/${product.id}`, 200, updatedInput, "PUT");
+    const { response: redirected } = await request(publicPath + input.slug, 301, undefined, "GET", true);
+    assert.equal(redirected.headers.get("location"), "/products/retro-runtime-after");
+    assert.equal(redirected.headers.get("cache-control"), "no-store");
+    const { data: final } = await request(publicPath + updatedInput.slug, 200, undefined, "GET", true); assert.equal(final.metaTitle, "Runtime SEO");
+    await storage.savePrivate("fixture.png", Buffer.from("isolated synthetic image bytes"));
+    await request("/api/media/publish", 200, { id: mediaId }, "POST");
+    await request(life + "/unpublish", 200, {}, "POST");
+    await request(publicPath + input.slug, 404, undefined, "GET", true);
+    await request(publicPath + updatedInput.slug, 404, undefined, "GET", true);
+    const publicCopy = await readFile(path.join(isolatedStorageRoot, "public", "uploads", "fixture.png"));
+    assert.equal(publicCopy.toString(), "isolated synthetic image bytes");
+    const regressions: object[] = [{ finding: "F1", observed: "Generic publish copied catalog media while product published; public copy still exists after unpublish", reproduced: true }];
+    // Readiness is currently a transition-only gate: record the unresolved policy boundary.
+    await request(life + "/publish", 200, {}, "POST");
+    await request(`${base}/${product.id}`, 200, { ...updatedInput, description: "", variants: [{ ...updatedInput.variants[0], priceMinor: "0" }] }, "PUT");
+    const { data: noLongerReady } = await request(life + "/readiness", 200);
+    assert.equal(noLongerReady.isReady, false);
+    await request(publicPath + updatedInput.slug, 200, undefined, "GET", true);
+    regressions.push({ finding: "D1", observed: "Published product remains public after ordinary edit clears description and price; readiness reports false", reproduced: true, policy: "Transition-only gate versus continuous invariant requires explicit decision" });
+    const result = { scope: "Real loopback HTTP requests routed to production handlers; isolated in-memory PGlite and temporary storage", limitation: "Not a Next server/browser/deployed-artifact run; synthetic image bytes only", passed: true, observed, regressions };
+    await writeFile("_bmad-output/implementation-artifacts/epic-4-retro-runtime-2026-10-21.json", JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ passed: true, requests: observed.length, storage: "in-memory PGlite only" }));
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    await db.$client.close();
+    // mkdtemp created this exact named directory in the system temp root.
+    assert.ok(path.resolve(isolatedStorageRoot).startsWith(path.resolve(tmpdir()) + path.sep));
+    await rm(isolatedStorageRoot, { recursive: true, force: true });
+  }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

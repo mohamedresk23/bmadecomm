@@ -1,0 +1,160 @@
+{
+  "scope": "Real loopback HTTP requests routed to production handlers; isolated in-memory PGlite and temporary storage",
+  "limitation": "Not a Next server/browser/deployed-artifact run; synthetic image bytes only",
+  "passed": true,
+  "observed": [
+    {
+      "method": "POST",
+      "path": "/api/v1/admin/catalog/products",
+      "status": 201,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-before",
+      "status": 404,
+      "cacheControl": "no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/readiness",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/publish",
+      "status": 422,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/admin/catalog/products/prd_rahd9qeondd9m4q338ro01o7/images",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/catalog/products/prd_rahd9qeondd9m4q338ro01o7/images",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/readiness",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/publish",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-before",
+      "status": 200,
+      "cacheControl": "no-store",
+      "location": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/catalog/products/prd_rahd9qeondd9m4q338ro01o7",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-before",
+      "status": 301,
+      "cacheControl": "no-store",
+      "location": "/products/retro-runtime-after"
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-after",
+      "status": 200,
+      "cacheControl": "no-store",
+      "location": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/media/publish",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/unpublish",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-before",
+      "status": 404,
+      "cacheControl": "no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-after",
+      "status": 404,
+      "cacheControl": "no-store",
+      "location": null
+    },
+    {
+      "method": "POST",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/publish",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/admin/catalog/products/prd_rahd9qeondd9m4q338ro01o7",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/catalog/products/prd_rahd9qeondd9m4q338ro01o7/readiness",
+      "status": 200,
+      "cacheControl": "private, no-store",
+      "location": null
+    },
+    {
+      "method": "GET",
+      "path": "/api/public/products/by-slug/retro-runtime-after",
+      "status": 200,
+      "cacheControl": "no-store",
+      "location": null
+    }
+  ],
+  "regressions": [
+    {
+      "finding": "F1",
+      "observed": "Generic publish copied catalog media while product published; public copy still exists after unpublish",
+      "reproduced": true
+    },
+    {
+      "finding": "D1",
+      "observed": "Published product remains public after ordinary edit clears description and price; readiness reports false",
+      "reproduced": true,
+      "policy": "Transition-only gate versus continuous invariant requires explicit decision"
+    }
+  ]
+}

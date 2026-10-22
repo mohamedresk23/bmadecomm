@@ -1,0 +1,12 @@
+﻿[
+    {
+        "path":  ".next/server/app/api/v1/admin/catalog/products/[id]/images/route.js.nft.json",
+        "imageWorkerEntries":  0,
+        "sharpEntries":  0
+    },
+    {
+        "path":  ".next/server/app/api/media/upload/route.js.nft.json",
+        "imageWorkerEntries":  1,
+        "sharpEntries":  111
+    }
+]
