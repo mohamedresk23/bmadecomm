@@ -301,6 +301,7 @@ export function ProductManager() {
       <div id="product-gallery" tabIndex={-1}>
       <ProductGallery
         productId={id}
+        readOnly={selected?.status !== "draft"}
         variants={persistedVariants}
         productSaving={saving || publicationBusy}
         onBusyChange={setGalleryBusy}

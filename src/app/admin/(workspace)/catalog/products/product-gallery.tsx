@@ -5,6 +5,7 @@ import { GalleryDto, GalleryImageDto } from "../../../../../modules/catalog/prod
 
 interface ProductGalleryProps {
   productId?: string;
+  readOnly?: boolean;
   variants?: { id: string; sku: string; attributes: Record<string, string> }[];
   productSaving?: boolean;
   onBusyChange?: (busy: boolean) => void;
@@ -24,6 +25,7 @@ export function ProductGallery(props: ProductGalleryProps) {
 
 function ProductGalleryState({
   productId,
+  readOnly = false,
   gallery: incomingGallery,
   variants = [],
   productSaving = false,
@@ -155,6 +157,7 @@ function ProductGalleryState({
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (readOnly) return;
     const file = e.target.files?.[0] || null;
     setSelectedFile(file);
     setUploadError(null);
@@ -167,7 +170,7 @@ function ProductGalleryState({
   };
 
   const executeUpload = async (fileToUpload: File, keyToUse: string) => {
-    if (!productId || loading || error || saving || gallery?.productId !== productId) return;
+    if (readOnly || !productId || loading || error || saving || gallery?.productId !== productId) return;
     const controller = new AbortController();
     uploadController.current = controller;
     let canRetry = true;
@@ -250,7 +253,7 @@ function ProductGalleryState({
 
   const handleUploadSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile || !idempotencyKey || uploading || saving) return;
+    if (readOnly || !selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
       const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
@@ -259,7 +262,7 @@ function ProductGalleryState({
   };
 
   const handleRetryUpload = async () => {
-    if (!selectedFile || !idempotencyKey || uploading || saving) return;
+    if (readOnly || !selectedFile || !idempotencyKey || uploading || saving) return;
     if (isDirty) {
       const confirmed = window.confirm("سيؤدي رفع صورة جديدة إلى تجاهل ترتيب الصور والأوصاف وتعيينات صور المتغيرات غير المحفوظة عند نجاح الرفع. هل تريد المتابعة؟");
       if (!confirmed) return;
@@ -268,7 +271,7 @@ function ProductGalleryState({
   };
 
   const handleSaveGallery = async () => {
-    if (!productId || !gallery || !isDirty || saving || uploading || loading || error || isStale || gallery.productId !== productId) return;
+    if (readOnly || !productId || !gallery || !isDirty || saving || uploading || loading || error || isStale || gallery.productId !== productId) return;
     setSaving(true);
     setSaveError(null);
     setSaveSuccess(null);
@@ -357,7 +360,7 @@ function ProductGalleryState({
   };
 
   const handleExecuteRemove = async (imageIdToRemove: string | null) => {
-    if (!productId || !gallery || !imageIdToRemove || !!removingImageId || saving || uploading || loading || !!error || gallery.productId !== productId) return;
+    if (readOnly || !productId || !gallery || !imageIdToRemove || !!removingImageId || saving || uploading || loading || !!error || gallery.productId !== productId) return;
 
     setRemovingImageId(imageIdToRemove);
     setSaveError(null);
@@ -493,7 +496,7 @@ function ProductGalleryState({
           <button
             type="button"
             onClick={handleSaveGallery}
-            disabled={!isDirty || isStale || saving || uploading || !!removingImageId || loading || !!error || gallery?.productId !== productId}
+            disabled={readOnly || !isDirty || isStale || saving || uploading || !!removingImageId || loading || !!error || gallery?.productId !== productId}
             className="rounded-lg bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             data-testid="gallery-save-button"
           >
@@ -511,14 +514,14 @@ function ProductGalleryState({
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 onChange={handleFileChange}
-                disabled={uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
+                disabled={readOnly || uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
                 className="text-xs text-slate-600 file:mr-2 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-slate-700 hover:file:bg-slate-200"
                 aria-label="اختر صورة للمنتج"
                 data-testid="gallery-upload-input"
               />
               <button
                 type="submit"
-                disabled={!selectedFile || !idempotencyKey || uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
+                disabled={readOnly || !selectedFile || !idempotencyKey || uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
                 className="rounded-lg bg-blue-700 px-3 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 data-testid="gallery-upload-button"
               >
@@ -529,6 +532,7 @@ function ProductGalleryState({
         </div>
       </div>
 
+      {readOnly && <p role="status" className="rounded-lg bg-slate-100 p-3 text-sm text-slate-700" data-testid="gallery-readonly-notice">معرض المنتج المنشور للعرض فقط. ألغِ النشر أولًا لتعديل الصور.</p>}
       <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="gallery-move-status">{moveAnnouncement}</p>
 
       {saveSuccess && (
@@ -566,7 +570,7 @@ function ProductGalleryState({
         </div>
       )}
 
-      {gallery && <fieldset disabled={saving || uploading || !!removingImageId || loading || !!error || gallery.productId !== productId} className="space-y-3">
+      {gallery && <fieldset disabled={readOnly || saving || uploading || !!removingImageId || loading || !!error || gallery.productId !== productId} className="space-y-3">
 
         <legend className="font-semibold">صور المتغيرات المحفوظة</legend>
         <p className="text-sm text-slate-600">احفظ المتغيرات الجديدة أولاً. بدون تعيين تستخدم الصورة الرئيسية، أو لا توجد صورة عندما يكون المعرض فارغاً.</p>
@@ -575,7 +579,7 @@ function ProductGalleryState({
           <select className="mt-1 block min-h-11 w-full rounded-lg border border-slate-400 bg-white p-2"
             aria-invalid={!!fieldErrors[`variantImages.${variant.id}`]} aria-describedby={fieldErrors[`variantImages.${variant.id}`] ? `variant-image-error-${variant.id}` : undefined}
             data-testid={`variant-image-${variant.id}`} aria-label={`صورة المتغير ${variant.sku}`}
-            value={mappings[variant.id] ?? ""} onChange={event => { setLocalMappings({ ...mappings, [variant.id]: event.target.value }); setSaveSuccess(null); }}>
+            value={mappings[variant.id] ?? ""} onChange={event => { if (readOnly) return; setLocalMappings({ ...mappings, [variant.id]: event.target.value }); setSaveSuccess(null); }}>
             <option value="">الصورة الرئيسية / بدون صورة</option>
             {orderedImages.map((image, index) => <option key={image.id} value={image.id}>{index + 1}: {(localAltTexts[image.id] ?? image.altText).trim() || `الصورة ${index + 1} (بدون وصف)`}</option>)}
           </select>
@@ -596,7 +600,7 @@ function ProductGalleryState({
               type="button"
               className="mt-2 text-xs font-semibold underline"
               onClick={handleRetryUpload}
-              disabled={uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
+              disabled={readOnly || uploading || saving || !!removingImageId || loading || !!error || gallery?.productId !== productId}
               data-testid="gallery-upload-retry"
             >
               إعادة المحاولة
@@ -693,12 +697,12 @@ function ProductGalleryState({
                       return <button key={direction} type="button"
                         ref={node => { moveButtons.current[key] = node; }}
                         aria-label={`${direction === -1 ? "نقل إلى موضع سابق" : "نقل إلى موضع لاحق"} للصورة ${index + 1}`}
-                        aria-disabled={boundary}
-                        disabled={saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
+                        aria-disabled={readOnly || boundary}
+                        disabled={readOnly || saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
                         data-testid={`gallery-move-${direction === -1 ? "earlier" : "later"}-${image.id}`}
                         className="min-h-11 rounded-lg border border-slate-400 px-3 py-2 text-xs font-semibold aria-disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-700 disabled:opacity-50"
                         onClick={() => {
-                          if (boundary || saving || uploading || loading || !!removingImageId || error) return;
+                          if (readOnly || boundary || saving || uploading || loading || !!removingImageId || error) return;
                           const ids = orderedImages.map(item => item.id);
                           const previousPrimary = ids[0];
                           [ids[index], ids[index + direction]] = [ids[index + direction], ids[index]];
@@ -714,10 +718,11 @@ function ProductGalleryState({
                       type="button"
                       ref={(node) => { removeButtons.current[image.id] = node; }}
                       aria-label={`إزالة الصورة ${index + 1}`}
-                      disabled={saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
+                      disabled={readOnly || saving || uploading || loading || !!removingImageId || !!error || gallery.productId !== productId}
                       data-testid={`gallery-remove-${image.id}`}
                       className="min-h-11 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
                       onClick={() => {
+                        if (readOnly) return;
                         setConfirmRemoveImageId(image.id);
                       }}
                     >
@@ -739,8 +744,9 @@ function ProductGalleryState({
                     type="text"
                     value={currentAlt}
                     maxLength={500}
-                    disabled={saving || uploading || loading || !!removingImageId || !!error || gallery?.productId !== productId}
+                    disabled={readOnly || saving || uploading || loading || !!removingImageId || !!error || gallery?.productId !== productId}
                     onChange={(e) => {
+                      if (readOnly) return;
                       const val = e.target.value;
                       setLocalAltTexts((prev) => ({ ...prev, [image.id]: val }));
                       setSaveSuccess(null);
@@ -834,7 +840,7 @@ function ProductGalleryState({
               </button>
               <button
                 type="button"
-                disabled={!!removingImageId}
+                disabled={readOnly || !!removingImageId}
                 onClick={() => handleExecuteRemove(confirmRemoveImageId)}
                 className="rounded-lg bg-rose-600 px-4 py-2 text-xs font-bold text-white transition-colors hover:bg-rose-700 disabled:opacity-50"
                 data-testid="gallery-remove-confirm"

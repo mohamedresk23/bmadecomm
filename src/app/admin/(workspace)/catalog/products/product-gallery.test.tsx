@@ -38,6 +38,60 @@ const mockGallery: GalleryDto = {
   ],
 };
 
+it("locks a published gallery without hiding previews and restores draft editing", () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const props = { productId: "prd_123", gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };
+  try {
+    const { rerender } = render(<ProductGallery {...props} />);
+    fireEvent.change(screen.getByTestId("gallery-upload-input"), { target: { files: [new File(["fixture"], "fixture.png", { type: "image/png" })] } });
+    fireEvent.click(screen.getByTestId("gallery-remove-pim_1"));
+    expect(screen.getByTestId("gallery-remove-dialog")).toBeTruthy();
+    rerender(<ProductGallery {...props} readOnly />);
+    expect((screen.getByTestId("gallery-remove-confirm") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("gallery-remove-confirm"));
+    fireEvent.click(screen.getByTestId("gallery-remove-cancel"));
+    expect(screen.queryByTestId("gallery-remove-dialog")).toBeNull();
+    expect((screen.getByTestId("gallery-move-later-pim_1") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("gallery-move-later-pim_1"));
+    expect(screen.getAllByTestId(/^gallery-image-/).map(node => node.dataset.testid)).toEqual(["gallery-image-pim_1", "gallery-image-pim_2"]);
+    fireEvent.submit(screen.getByTestId("gallery-upload-input").closest("form")!);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    expect(screen.getByTestId("gallery-readonly-notice")).toBeTruthy();
+    const preview = screen.getByTestId("gallery-image-pim_1").querySelector("img")!;
+    fireEvent.error(preview);
+    fireEvent.click(screen.getByRole("button", { name: "إعادة المحاولة" }));
+    expect(screen.getByTestId("gallery-image-pim_1").querySelector("img")).not.toBeNull();
+    rerender(<ProductGallery {...props} readOnly={false} />);
+    expect((screen.getByTestId("gallery-upload-button") as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByTestId("gallery-move-later-pim_1") as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByTestId("gallery-move-later-pim_1"));
+    expect(screen.getByTestId("gallery-dirty-badge")).toBeTruthy();
+  } finally { vi.unstubAllGlobals(); }
+});
+
+it("blocks failed-upload retry and dirty saving after switching to read-only", async () => {
+  const fetcher = vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: { message: "Unavailable" } }) });
+  vi.stubGlobal("fetch", fetcher);
+  const props = { productId: "prd_123", gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };
+  try {
+    const { rerender } = render(<ProductGallery {...props} />);
+    fireEvent.change(screen.getByTestId("gallery-upload-input"), { target: { files: [new File(["fixture"], "fixture.png", { type: "image/png" })] } });
+    fireEvent.click(screen.getByTestId("gallery-upload-button"));
+    await screen.findByTestId("gallery-upload-retry");
+    fireEvent.change(screen.getByTestId("gallery-alt-input-pim_1"), { target: { value: "Keep pending edit" } });
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(false);
+    rerender(<ProductGallery {...props} readOnly />);
+    expect((screen.getByTestId("gallery-save-button") as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByTestId("gallery-upload-retry") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("gallery-save-button"));
+    fireEvent.click(screen.getByTestId("gallery-upload-retry"));
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect((screen.getByTestId("gallery-alt-input-pim_1") as HTMLInputElement).value).toBe("Keep pending edit");
+  } finally { vi.unstubAllGlobals(); }
+});
+
 describe("persisted variant image selectors", () => {
   const variants: { id: string; sku: string; attributes: Record<string, string> }[] = [{ id: "v1", sku: "RED-S", attributes: { color: "red", size: "s" } }, { id: "v2", sku: "BLUE-M", attributes: { color: "blue" } }];
   const props = { productId: "prd_123", variants, gallery: mockGallery, loading: false, error: null, onRetry: vi.fn() };

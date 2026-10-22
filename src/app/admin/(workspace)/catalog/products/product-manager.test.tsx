@@ -33,6 +33,8 @@ it("focuses persisted corrections, refreshes gallery readiness and completes the
     fireEvent.click(screen.getByRole("button", { name: "تعديل Lifecycle" }));
     await screen.findByText("تعديل المنتج المنشور");
     await waitFor(() => expect((screen.getByRole("button", { name: "إلغاء النشر" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("gallery-readonly-notice")).toBeTruthy();
+    expect((screen.getByTestId(`gallery-alt-input-${imageId}`) as HTMLInputElement).disabled).toBe(true);
   }
   try {
     render(<ProductManager />); await screen.findByRole("button", { name: "تعديل Lifecycle" });
@@ -52,6 +54,26 @@ it("focuses persisted corrections, refreshes gallery readiness and completes the
     await waitFor(() => expect((screen.getByRole("button", { name: "نشر المنتج" }) as HTMLButtonElement).disabled).toBe(false));
     vi.spyOn(window, "confirm").mockReturnValue(true);
     fireEvent.click(screen.getByRole("button", { name: "نشر المنتج" })); await screen.findByText("حالة المنتج: منشور");
+    await waitFor(() => expect((screen.getByRole("button", { name: "إلغاء النشر" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("gallery-readonly-notice").textContent).toContain("ألغِ النشر أولًا");
+    const publishedControls = ["gallery-upload-input", "gallery-upload-button", "gallery-save-button", `gallery-alt-input-${imageId}`, `gallery-remove-${imageId}`, `gallery-move-earlier-${imageId}`, `gallery-move-later-${imageId}`];
+    for (const testId of publishedControls) expect((screen.getByTestId(testId) as HTMLInputElement | HTMLButtonElement).disabled).toBe(true);
+    const variantSelect = screen.getByTestId(`variant-image-${product.variants[0].id}`);
+    expect((variantSelect.closest("fieldset") as HTMLFieldSetElement).disabled).toBe(true);
+    expect((variantSelect as HTMLSelectElement).value).toBe("");
+    const galleryWrites = () => transport.mock.calls.filter(([url, options]) => url.includes("/images") && ["POST", "PUT", "DELETE"].includes(options?.method ?? "GET")).length;
+    const writesBeforePublishedInteractions = galleryWrites();
+    fireEvent.change(screen.getByTestId(`gallery-alt-input-${imageId}`), { target: { value: "Must not become dirty" } });
+    fireEvent.change(variantSelect, { target: { value: imageId } });
+    expect((variantSelect as HTMLSelectElement).value).toBe("");
+    fireEvent.change(screen.getByTestId("gallery-upload-input"), { target: { files: [new File(["fixture"], "fixture.png", { type: "image/png" })] } });
+    for (const testId of publishedControls.filter(value => !value.includes("input"))) fireEvent.click(screen.getByTestId(testId));
+    fireEvent.submit(screen.getByTestId("gallery-upload-input").closest("form")!);
+    expect(galleryWrites()).toBe(writesBeforePublishedInteractions);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    expect(screen.queryByTestId("gallery-remove-dialog")).toBeNull();
+    expect((screen.getByTestId(`gallery-alt-input-${imageId}`) as HTMLInputElement).value).toBe("Accessible image");
+    expect((screen.getByRole("button", { name: "إلغاء النشر" }) as HTMLButtonElement).disabled).toBe(false);
     expect((await resolve(product.slug)).status).toBe(200);
     expect((await publicDetail(new Request(`http://localhost:3000/api/v1/store/products/${product.id}`), { params: Promise.resolve({ id: product.id }) })).status).toBe(200);
     await reopen();
@@ -69,7 +91,25 @@ it("focuses persisted corrections, refreshes gallery readiness and completes the
     expect((screen.getByLabelText("عنوان محركات البحث") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("وصف محركات البحث") as HTMLInputElement).value).toBe("");
     expect(await getProductById(db, product.id)).toMatchObject({ metaTitle: null, metaDescription: null });
+    const normalTransport = transport.getMockImplementation()!;
+    transport.mockImplementation(async (url, options) => url.endsWith("/unpublish") ? Response.json({ error: { code: "INTERNAL_SERVER_ERROR", message: "Unavailable" } }, { status: 503 }) : normalTransport(url, options));
+    const writesBeforeFailedUnpublish = galleryWrites();
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء النشر" }));
+    await screen.findByText("تعذر تغيير حالة النشر. راجع المتطلبات ثم أعد المحاولة؛ بياناتك محفوظة.");
+    await waitFor(() => expect((screen.getByRole("button", { name: "إلغاء النشر" }) as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByTestId("gallery-readonly-notice")).toBeTruthy();
+    expect((screen.getByTestId(`gallery-alt-input-${imageId}`) as HTMLInputElement).disabled).toBe(true);
+    fireEvent.change(screen.getByTestId(`gallery-alt-input-${imageId}`), { target: { value: "Still locked" } });
+    fireEvent.submit(screen.getByTestId("gallery-upload-input").closest("form")!);
+    expect(galleryWrites()).toBe(writesBeforeFailedUnpublish);
+    expect(screen.queryByTestId("gallery-dirty-badge")).toBeNull();
+    transport.mockImplementation(normalTransport);
     fireEvent.click(screen.getByRole("button", { name: "إلغاء النشر" })); await screen.findByText("حالة المنتج: مسودة");
+    await waitFor(() => expect((screen.getByTestId(`gallery-alt-input-${imageId}`) as HTMLInputElement).disabled).toBe(false));
+    expect(screen.queryByTestId("gallery-readonly-notice")).toBeNull();
+    fireEvent.change(screen.getByTestId(`gallery-alt-input-${imageId}`), { target: { value: "Edited after unpublish" } });
+    fireEvent.click(screen.getByTestId("gallery-save-button")); await screen.findByTestId("gallery-save-success");
+    expect((await db.select().from(productMedia).where(eq(productMedia.id, imageId)))[0].altText).toBe("Edited after unpublish");
     expect((await resolve("lifecycle-updated")).status).toBe(404); expect((await resolve(product.slug)).status).toBe(404);
     expect((await publicDetail(new Request(`http://localhost:3000/api/v1/store/products/${product.id}`), { params: Promise.resolve({ id: product.id }) })).status).toBe(404);
   } finally {
