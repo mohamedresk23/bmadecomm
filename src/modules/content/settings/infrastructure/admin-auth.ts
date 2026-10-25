@@ -85,3 +85,11 @@ export async function requireStaffSession(
 export async function requireCatalogStaffSession(req: Request, validateCsrf = false) {
   return requireStaffSession(req, validateCsrf, ["owner", "staff", "catalog_manager", "catalog"]);
 }
+
+export async function requireContentStaffSession(
+  req: Request,
+  validateCsrf = false,
+  allowedRoles: string[] = ["owner", "marketing"]
+) {
+  return requireStaffSession(req, validateCsrf, allowedRoles);
+}

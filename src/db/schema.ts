@@ -1,6 +1,7 @@
 import { pgTable, text, timestamp, jsonb, integer, bigint, boolean, primaryKey, index, uniqueIndex, check, foreignKey, AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createId } from "@paralleldrive/cuid2";
+import type { HomepageSectionConfig } from "../modules/content/homepage/contracts/section-schema";
 
 // F00-04: append-only audit trail. UPDATE/DELETE are blocked by a DB trigger
 // (see migration 0002_audit_append_only).
@@ -408,4 +409,30 @@ export const slugRedirects = pgTable("slug_redirects", {
   check("slug_redirects_no_self_redirect", sql`${t.sourceSlug} <> ${t.targetSlug}`),
   check("slug_redirects_source_slug_normalized", sql`${t.sourceSlug} = lower(btrim(${t.sourceSlug})) AND ${t.sourceSlug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${t.sourceSlug}) <= 255`),
   check("slug_redirects_target_slug_normalized", sql`${t.targetSlug} = lower(btrim(${t.targetSlug})) AND ${t.targetSlug} ~ '^[a-z0-9]+(-[a-z0-9]+)*$' AND length(${t.targetSlug}) <= 255`),
+]);
+
+export const homepageDrafts = pgTable("homepage_drafts", {
+  key: text("key").primaryKey().default("default"),
+  sections: jsonb("sections").notNull().$type<HomepageSectionConfig[]>(),
+  revision: integer("revision").notNull().default(1),
+  updatedBy: text("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  check("homepage_drafts_key_singleton", sql`${t.key} = 'default'`),
+  check("homepage_drafts_revision_positive", sql`${t.revision} >= 1`),
+  check("homepage_drafts_sections_array", sql`jsonb_typeof(${t.sections}) = 'array'`),
+]);
+
+export const homepagePublications = pgTable("homepage_publications", {
+  id: text("id").primaryKey().$defaultFn(() => createId()),
+  version: integer("version").notNull(),
+  sourceDraftRevision: integer("source_draft_revision").notNull(),
+  sections: jsonb("sections").notNull().$type<HomepageSectionConfig[]>(),
+  publishedBy: text("published_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  publishedAt: timestamp("published_at", { withTimezone: true }).defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("homepage_publications_version_uq").on(t.version),
+  index("homepage_publications_published_at_idx").on(t.publishedAt),
+  check("homepage_publications_version_positive", sql`${t.version} >= 1`),
+  check("homepage_publications_sections_array", sql`jsonb_typeof(${t.sections}) = 'array'`),
 ]);

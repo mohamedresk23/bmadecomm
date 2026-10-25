@@ -95,11 +95,13 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     const applied = await getAppliedMigrations(testDb);
     expect(applied.length).toBe(pendingBefore.length);
     expect(applied[0].tag).toBe("0000_busy_loki");
-    expect(applied[applied.length - 1].tag).toBe("0018_product_publish_slug_seo");
+    expect(applied[applied.length - 1].tag).toBe("0019_homepage_content");
     expect(await checkTableExists(testDb, "product_media")).toBe(true);
     expect(await checkTableExists(testDb, "upload_rate_buckets")).toBe(true);
     expect(await checkTableExists(testDb, "variant_media")).toBe(true);
     expect(await checkTableExists(testDb, "slug_redirects")).toBe(true);
+    expect(await checkTableExists(testDb, "homepage_drafts")).toBe(true);
+    expect(await checkTableExists(testDb, "homepage_publications")).toBe(true);
   }, 20000);
 
   it("re-running up is idempotent without duplicating or corrupting migration history", async () => {
@@ -124,10 +126,12 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
 
     // Roll back the latest rate limiter while preserving gallery and products.
     const rollbackRes = await rollbackMigration({ db: testDb, steps: 1, quiet: true });
-    expect(rollbackRes.rolledBack).toEqual(["0018_product_publish_slug_seo"]);
+    expect(rollbackRes.rolledBack).toEqual(["0019_homepage_content"]);
 
-    expect(await checkTableExists(testDb, "slug_redirects")).toBe(false);
-    await expectProductSlugColumn(false);
+    expect(await checkTableExists(testDb, "homepage_drafts")).toBe(false);
+    expect(await checkTableExists(testDb, "homepage_publications")).toBe(false);
+    expect(await checkTableExists(testDb, "slug_redirects")).toBe(true);
+    await expectProductSlugColumn(true);
     expect(await checkTableExists(testDb, "variant_media")).toBe(true);
     expect(await checkTableExists(testDb, "upload_rate_buckets")).toBe(true);
     await expectRetainedDraft();
@@ -144,7 +148,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     // Journal record removed
     const appliedAfter = await getAppliedMigrations(testDb);
     expect(appliedAfter.length).toBe(totalCount - 1);
-    expect(appliedAfter[appliedAfter.length - 1].tag).toBe("0017_variant_media");
+    expect(appliedAfter[appliedAfter.length - 1].tag).toBe("0018_product_publish_slug_seo");
   }, 20000);
 
   it("repeated rollback to the same target is a safe no-op", async () => {
@@ -156,7 +160,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
       target: "0012_payment_method_configs",
       quiet: true,
     });
-    expect(res1.rolledBack).toEqual(["0018_product_publish_slug_seo", "0017_variant_media", "0016_upload_rate_limit", "0015_product_gallery", "0014_product_drafts", "0013_categories"]);
+    expect(res1.rolledBack).toEqual(["0019_homepage_content", "0018_product_publish_slug_seo", "0017_variant_media", "0016_upload_rate_limit", "0015_product_gallery", "0014_product_drafts", "0013_categories"]);
 
     // Repeating rollback targeting 0012_payment_method_configs
     const res2 = await rollbackMigration({
@@ -176,13 +180,15 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
 
     // Rollback 1 step
     await rollbackMigration({ db: testDb, steps: 1, quiet: true });
-    expect(await checkTableExists(testDb, "slug_redirects")).toBe(false);
-    await expectProductSlugColumn(false);
+    expect(await checkTableExists(testDb, "homepage_drafts")).toBe(false);
+    expect(await checkTableExists(testDb, "homepage_publications")).toBe(false);
+    expect(await checkTableExists(testDb, "slug_redirects")).toBe(true);
+    await expectProductSlugColumn(true);
     expect(await checkTableExists(testDb, "products")).toBe(true);
 
     // Re-apply up
     const reapplyRes = await runMigrations({ db: testDb, quiet: true });
-    expect(reapplyRes.applied).toEqual(["0018_product_publish_slug_seo"]);
+    expect(reapplyRes.applied).toEqual(["0019_homepage_content"]);
     await expectRetainedDraft();
     await expectMediaRevision(true);
 
@@ -193,13 +199,15 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
     expect(await checkTableExists(testDb, "upload_rate_buckets")).toBe(true);
     expect(await checkTableExists(testDb, "variant_media")).toBe(true);
     expect(await checkTableExists(testDb, "slug_redirects")).toBe(true);
+    expect(await checkTableExists(testDb, "homepage_drafts")).toBe(true);
+    expect(await checkTableExists(testDb, "homepage_publications")).toBe(true);
     await expectProductSlugColumn(true);
     expect(await checkTableExists(testDb, "payment_method_configs")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_zones")).toBe(true);
     expect(await checkTableExists(testDb, "shipping_methods")).toBe(true);
 
     const applied = await getAppliedMigrations(testDb);
-    expect(applied[applied.length - 1].tag).toBe("0018_product_publish_slug_seo");
+    expect(applied[applied.length - 1].tag).toBe("0019_homepage_content");
   }, 20000);
 
   it("rolls back multiple migrations in correct reverse order", async () => {
@@ -208,11 +216,13 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
 
     // Rollback 2 steps
     const res = await rollbackMigration({ db: testDb, steps: 2, quiet: true });
-    expect(res.rolledBack).toEqual(["0018_product_publish_slug_seo", "0017_variant_media"]);
+    expect(res.rolledBack).toEqual(["0019_homepage_content", "0018_product_publish_slug_seo"]);
 
-    // Gallery/rate tables are dropped; product drafts and earlier tables remain.
+    // Homepage and slug tables are dropped; variant media and earlier remain.
+    expect(await checkTableExists(testDb, "homepage_drafts")).toBe(false);
+    expect(await checkTableExists(testDb, "homepage_publications")).toBe(false);
     expect(await checkTableExists(testDb, "slug_redirects")).toBe(false);
-    expect(await checkTableExists(testDb, "variant_media")).toBe(false);
+    expect(await checkTableExists(testDb, "variant_media")).toBe(true);
     expect(await checkTableExists(testDb, "upload_rate_buckets")).toBe(true);
     expect(await checkTableExists(testDb, "product_media")).toBe(true);
     await expectRetainedDraft();
@@ -226,7 +236,7 @@ describe("Database Migrations (Up / Down / Rollback)", () => {
 
     // 0014 is now the active head.
     const applied = await getAppliedMigrations(testDb);
-    expect(applied[applied.length - 1].tag).toBe("0016_upload_rate_limit");
+    expect(applied[applied.length - 1].tag).toBe("0017_variant_media");
   }, 20000);
 
   it("maintains schema and journal consistency if a rollback operation fails", async () => {

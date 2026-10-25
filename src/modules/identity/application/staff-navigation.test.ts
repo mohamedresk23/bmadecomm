@@ -54,5 +54,34 @@ describe("staffNavigation", () => {
     expect(staffNavigation(["owner", "catalog"]).filter(item => item.href === "/admin/catalog/products")).toHaveLength(1);
     expect(staffNavigation(["support"]).some(item => item.href === "/admin/catalog/products")).toBe(false);
   });
-});
 
+  it.each([
+    ["owner"],
+    ["marketing"],
+  ])("includes /admin/content/homepage for authorized role %s", (role) => {
+    const items = staffNavigation([role]);
+    const homepageItem = items.find((i) => i.href === "/admin/content/homepage");
+    expect(homepageItem).toBeDefined();
+    expect(homepageItem).toEqual({ href: "/admin/content/homepage", label: "Homepage content" });
+  });
+
+  it.each([
+    [["support"]],
+    [["fulfillment"]],
+    [["finance"]],
+    [["customer"]],
+    [["staff"]],
+    [["catalog_manager"]],
+    [["catalog"]],
+  ])("excludes /admin/content/homepage for unauthorized role set %j", (roles) => {
+    const items = staffNavigation(roles);
+    const homepageItem = items.find((i) => i.href === "/admin/content/homepage");
+    expect(homepageItem).toBeUndefined();
+  });
+
+  it("does not duplicate /admin/content/homepage when multiple authorized roles are present", () => {
+    const items = staffNavigation(["owner", "marketing"]);
+    const homepageItems = items.filter((i) => i.href === "/admin/content/homepage");
+    expect(homepageItems).toHaveLength(1);
+  });
+});

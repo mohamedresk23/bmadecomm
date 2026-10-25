@@ -12,5 +12,8 @@ export function staffNavigation(roles: readonly string[]) {
     items.push({ href: '/admin/catalog/categories', label: 'Categories' });
     items.push({ href: '/admin/catalog/products', label: 'Products' });
   }
+  if (roles.some((r) => ['owner', 'marketing'].includes(r))) {
+    items.push({ href: '/admin/content/homepage', label: 'Homepage content' });
+  }
   return items;
 }
